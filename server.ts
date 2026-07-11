@@ -3,29 +3,41 @@ import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
 import mysql from "mysql2/promise";
+import dotenv from "dotenv";
+
+dotenv.config();
 
 const PORT = 3000;
 const DB_FILE_PATH = path.join(process.cwd(), "data", "db.json");
 
-// Hostinger MySQL connection pool (lazy initialization)
+// Hostinger MySQL connection pool (dynamic lazy initialization)
 let dbPool: mysql.Pool | null = null;
-if (process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME) {
-  try {
-    dbPool = mysql.createPool({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: process.env.DB_NAME,
-      port: parseInt(process.env.DB_PORT || "3306"),
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0
-    });
-    console.log("Successfully connected with Hostinger MySQL Database Connection Pool!");
-  } catch (err) {
-    console.error("Failed to initialize Hostinger MySQL database connection pool:", err);
+
+function checkAndInitDbPool(): mysql.Pool | null {
+  if (dbPool) return dbPool;
+  if (process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME) {
+    try {
+      dbPool = mysql.createPool({
+        host: process.env.DB_HOST,
+        user: process.env.DB_USER,
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME,
+        port: parseInt(process.env.DB_PORT || "3306"),
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0,
+        connectTimeout: 8000
+      });
+      console.log("Successfully connected with Hostinger MySQL Database Connection Pool!");
+    } catch (err) {
+      console.error("Failed to initialize Hostinger MySQL database connection pool:", err);
+    }
   }
+  return dbPool;
 }
+
+// Initial attempt to bind pool
+checkAndInitDbPool();
 
 // Ensure data folder exists
 if (!fs.existsSync(path.dirname(DB_FILE_PATH))) {
@@ -386,7 +398,8 @@ function writeDb(data: typeof DEFAULT_DB) {
   try {
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), "utf-8");
     // Async push changes to Hostinger MySQL database in the background if connected
-    if (dbPool) {
+    const pool = checkAndInitDbPool();
+    if (pool) {
       syncToMySql(data).catch((e) => console.error("Async background MySQL sync error:", e));
     }
   } catch (error) {
@@ -396,10 +409,11 @@ function writeDb(data: typeof DEFAULT_DB) {
 
 // Ensure dynamic auxiliary tables are present on Hostinger MySQL
 async function createExtraTablesIfNotExist() {
-  if (!dbPool) return;
+  const pool = checkAndInitDbPool();
+  if (!pool) return;
   try {
     // 1. partners
-    await dbPool.query(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS partners (
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
@@ -408,7 +422,7 @@ async function createExtraTablesIfNotExist() {
     `);
 
     // 2. activity_logs
-    await dbPool.query(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS activity_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
         event TEXT NOT NULL,
@@ -418,7 +432,7 @@ async function createExtraTablesIfNotExist() {
     `);
 
     // 3. benefits
-    await dbPool.query(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS benefits (
         id INT AUTO_INCREMENT PRIMARY KEY,
         title VARCHAR(255) NOT NULL,
@@ -438,7 +452,8 @@ async function createExtraTablesIfNotExist() {
 
 // Initial seeder/initializer for Hostinger MySQL
 async function initializeMySqlTables() {
-  if (!dbPool) return;
+  const pool = checkAndInitDbPool();
+  if (!pool) return;
   try {
     const sqlPath = path.join(process.cwd(), "database.sql");
     if (!fs.existsSync(sqlPath)) {
@@ -460,7 +475,7 @@ async function initializeMySqlTables() {
     console.log(`Executing ${statements.length} SQL statements to build Hostinger tables...`);
     for (const stmt of statements) {
       try {
-        await dbPool.query(stmt);
+        await pool.query(stmt);
       } catch (stmtErr: any) {
         console.warn("SQL statement warning:", stmtErr.message);
       }
@@ -473,12 +488,14 @@ async function initializeMySqlTables() {
 
 // Load database from Hostinger MySQL into our local cache
 async function loadFromMySql() {
-  if (!dbPool) return;
+  const pool = checkAndInitDbPool();
+  if (!pool) return;
+  const dbPool = pool;
   try {
     console.log("Loading data from Hostinger MySQL Database...");
     
     // Check if tables exist. If they don't, we try to initialize them!
-    const [tables]: any = await dbPool.query("SHOW TABLES LIKE 'users'");
+    const [tables]: any = await pool.query("SHOW TABLES LIKE 'users'");
     if (tables.length === 0) {
       console.log("No tables found. Initializing MySQL tables from database.sql...");
       await initializeMySqlTables();
@@ -491,7 +508,7 @@ async function loadFromMySql() {
     const db: any = { ...DEFAULT_DB };
 
     // 1. users
-    const [usersRows]: any = await dbPool.query("SELECT * FROM users");
+    const [usersRows]: any = await pool.query("SELECT * FROM users");
     if (usersRows.length > 0) {
       db.users = usersRows.map((r: any) => ({
         id: Number(r.id),
@@ -723,7 +740,9 @@ async function loadFromMySql() {
 
 // Background sync from local cache state to Hostinger MySQL
 async function syncToMySql(db: typeof DEFAULT_DB) {
-  if (!dbPool) return;
+  const pool = checkAndInitDbPool();
+  if (!pool) return;
+  const dbPool = pool;
   try {
     console.log("Syncing database updates to Hostinger MySQL in the background...");
 
@@ -955,7 +974,7 @@ async function startServer() {
   app.use(express.json());
 
   // Load initial database state from Hostinger MySQL if configured
-  if (dbPool) {
+  if (checkAndInitDbPool()) {
     try {
       await loadFromMySql();
     } catch (err) {
@@ -972,6 +991,71 @@ async function startServer() {
   });
 
   // --- API ROUTES ---
+
+  // Database Connection Status & Sync Controls
+  app.get("/api/db-status", async (req, res) => {
+    const pool = checkAndInitDbPool();
+    const envVars = {
+      DB_HOST: !!process.env.DB_HOST,
+      DB_USER: !!process.env.DB_USER,
+      DB_NAME: !!process.env.DB_NAME,
+      DB_PASSWORD: !!process.env.DB_PASSWORD,
+      DB_PORT: !!process.env.DB_PORT
+    };
+    
+    if (!pool) {
+      return res.json({
+        connected: false,
+        fallback: true,
+        env: envVars,
+        error: "No database credentials found. Please configure DB_HOST, DB_USER, DB_NAME, and DB_PASSWORD in the AI Studio Settings panel."
+      });
+    }
+
+    try {
+      // Run a lightweight test query
+      await pool.query("SELECT 1");
+      return res.json({
+        connected: true,
+        fallback: false,
+        env: envVars,
+        message: "Successfully connected to Hostinger MySQL Database!"
+      });
+    } catch (err: any) {
+      return res.json({
+        connected: false,
+        fallback: true,
+        env: envVars,
+        error: `Could not connect to Hostinger MySQL: ${err.message}. Please verify Remote MySQL / IP Whitelist permissions in Hostinger.`
+      });
+    }
+  });
+
+  app.post("/api/db-sync", async (req, res) => {
+    const { action } = req.body;
+    const pool = checkAndInitDbPool();
+    if (!pool) {
+      return res.status(400).json({ success: false, message: "Database connection is not configured." });
+    }
+
+    try {
+      if (action === "push") {
+        const db = readDb();
+        await syncToMySql(db);
+        logActivity("Manually backed up all current website data to Hostinger MySQL");
+        return res.json({ success: true, message: "Successfully pushed and backed up all current data to Hostinger MySQL Database!" });
+      } else if (action === "pull") {
+        await loadFromMySql();
+        logActivity("Manually pulled latest database records from Hostinger MySQL");
+        return res.json({ success: true, message: "Successfully pulled and synchronized all data from Hostinger MySQL Database!" });
+      } else {
+        return res.status(400).json({ success: false, message: "Invalid action. Choose 'push' or 'pull'." });
+      }
+    } catch (err: any) {
+      console.error("Database sync error:", err);
+      return res.status(500).json({ success: false, message: `Sync failed: ${err.message}` });
+    }
+  });
 
   // Auth
   app.post("/api/auth/login", (req, res) => {

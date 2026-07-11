@@ -29,6 +29,12 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [settings, setSettings] = useState<AgencySettings | null>(null);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
 
+  // Hostinger MySQL Diagnostics & Synchronization States
+  const [dbConnected, setDbConnected] = useState<boolean | null>(null);
+  const [dbDetails, setDbDetails] = useState<any>(null);
+  const [dbSyncing, setDbSyncing] = useState<boolean>(false);
+  const [dbSyncMessage, setDbSyncMessage] = useState<string>("");
+
   // CSV Importer States
   const [csvText, setCsvText] = useState("");
   const [showCsvBox, setShowCsvBox] = useState(false);
@@ -155,8 +161,51 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     }
   };
 
+  const fetchDbStatus = async () => {
+    try {
+      const res = await fetch("/api/db-status");
+      if (res.ok) {
+        const data = await res.json();
+        setDbConnected(data.connected);
+        setDbDetails(data);
+      } else {
+        setDbConnected(false);
+      }
+    } catch (err) {
+      console.error("Error retrieving database status:", err);
+      setDbConnected(false);
+    }
+  };
+
+  const handleDbSync = async (action: "push" | "pull") => {
+    setDbSyncing(true);
+    setDbSyncMessage("");
+    try {
+      const res = await fetch("/api/db-sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDbSyncMessage(`Success: ${data.message}`);
+        if (action === "pull") {
+          fetchAllData();
+        }
+      } else {
+        setDbSyncMessage(`Error: ${data.message || "Failed to complete operation"}`);
+      }
+    } catch (err: any) {
+      setDbSyncMessage(`Network Error: ${err.message || "Could not connect to sync service"}`);
+    } finally {
+      setDbSyncing(false);
+      fetchDbStatus();
+    }
+  };
+
   useEffect(() => {
     fetchAllData();
+    fetchDbStatus();
   }, []);
 
   // CSV Parsing Engine
@@ -1881,6 +1930,117 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   >
                     <Download className="w-4 h-4" /> Export Backup
                   </a>
+                </div>
+              </div>
+
+              {/* Hostinger MySQL Database Connectivity & Management */}
+              <div className="space-y-3 pt-4 border-t border-slate-100">
+                <h5 className="text-xs font-bold uppercase tracking-widest text-slate-400">Hostinger MySQL Database Integration</h5>
+                <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-4">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-display font-bold text-slate-800 text-sm">Hostinger Database Status</span>
+                        {dbConnected === null ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 flex items-center gap-1 animate-pulse">
+                            <Clock className="w-3 h-3" /> Checking connection...
+                          </span>
+                        ) : dbConnected ? (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-600 border border-emerald-100/50 flex items-center gap-1">
+                            <Check className="w-3 h-3" /> Connected & Active
+                          </span>
+                        ) : (
+                          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100/50 flex items-center gap-1">
+                            <Shield className="w-3 h-3" /> Local Storage Fallback
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-500 leading-relaxed max-w-xl">
+                        Your agency utilizes a dual-engine architecture. It writes to local persistent caches and synchronizes asynchronously with your Remote Hostinger MySQL database.
+                      </p>
+                    </div>
+                    <div>
+                      <button
+                        type="button"
+                        onClick={fetchDbStatus}
+                        className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold text-xs cursor-pointer flex items-center gap-1"
+                      >
+                        <Settings className="w-3.5 h-3.5" /> Test Connection
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Status / Errors */}
+                  {!dbConnected && dbDetails?.error && (
+                    <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-100 text-[11px] text-amber-700 font-mono leading-relaxed space-y-1">
+                      <div className="font-bold">⚠️ Warning Description:</div>
+                      <div>{dbDetails.error}</div>
+                      <div className="text-[10px] text-slate-500 font-sans mt-2">
+                        💡 How to fix: Make sure you have whitelisted the IP of your hosting platform or set Remote MySQL to allow connections from all hosts (%) on Hostinger, then set up the DB_HOST, DB_USER, DB_NAME, and DB_PASSWORD environment variables in your AI Studio Settings menu.
+                      </div>
+                    </div>
+                  )}
+
+                  {dbConnected && (
+                    <div className="p-3.5 rounded-xl bg-emerald-50/30 border border-emerald-100/40 text-[11px] text-emerald-700 leading-relaxed">
+                      🎉 <strong>Success:</strong> Connection with Hostinger MySQL is fully established. All website contents, portfolios, services, packages, activity logs, and testimonials are synchronized in real-time.
+                    </div>
+                  )}
+
+                  {/* Environment Variables Checklist */}
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 pt-1">
+                    {dbDetails?.env && Object.entries(dbDetails.env).map(([key, value]) => (
+                      <div key={key} className="p-2.5 rounded-xl bg-white border border-slate-100 text-center flex flex-col justify-between min-h-[54px]">
+                        <span className="text-[9px] font-bold text-slate-400 block font-mono">{key}</span>
+                        <span className={`text-[10px] font-bold mt-1 inline-block ${value ? "text-emerald-600" : "text-emerald-600"}`}>
+                          {value ? "✓ Configured" : "✗ Missing"}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Manual Backup & Synchronize Operations */}
+                  {dbConnected && (
+                    <div className="pt-3 border-t border-slate-100 space-y-3">
+                      <div>
+                        <h6 className="font-display font-bold text-slate-800 text-xs">Manual Synchronize Operations</h6>
+                        <p className="text-[10px] text-slate-400">Trigger manual state overrides between local storage and live Hostinger database.</p>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-2.5">
+                        <button
+                          type="button"
+                          disabled={dbSyncing}
+                          onClick={() => handleDbSync("pull")}
+                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-fade-in"
+                        >
+                          {dbSyncing ? "Syncing..." : "Pull Latest from Hostinger"}
+                        </button>
+                        <button
+                          type="button"
+                          disabled={dbSyncing}
+                          onClick={() => {
+                            if (window.confirm("WARNING: This will overwrite Hostinger's tables with your current local state. Do you want to proceed?")) {
+                              handleDbSync("push");
+                            }
+                          }}
+                          className="px-4 py-2 rounded-xl bg-purple-100 hover:bg-purple-200/80 text-purple-700 border border-purple-200/50 font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-fade-in"
+                        >
+                          {dbSyncing ? "Syncing..." : "Push Local to Hostinger"}
+                        </button>
+                      </div>
+
+                      {dbSyncMessage && (
+                        <div className={`p-3 rounded-xl text-xs font-medium border animate-fade-in ${
+                          dbSyncMessage.startsWith("Success") 
+                            ? "bg-emerald-50 text-emerald-700 border-emerald-100" 
+                            : "bg-rose-50 text-rose-700 border-rose-100"
+                        }`}>
+                          {dbSyncMessage}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
