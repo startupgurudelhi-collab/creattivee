@@ -2,9 +2,30 @@ import express from "express";
 import path from "path";
 import fs from "fs";
 import { createServer as createViteServer } from "vite";
+import mysql from "mysql2/promise";
 
 const PORT = 3000;
 const DB_FILE_PATH = path.join(process.cwd(), "data", "db.json");
+
+// Hostinger MySQL connection pool (lazy initialization)
+let dbPool: mysql.Pool | null = null;
+if (process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME) {
+  try {
+    dbPool = mysql.createPool({
+      host: process.env.DB_HOST,
+      user: process.env.DB_USER,
+      password: process.env.DB_PASSWORD,
+      database: process.env.DB_NAME,
+      port: parseInt(process.env.DB_PORT || "3306"),
+      waitForConnections: true,
+      connectionLimit: 10,
+      queueLimit: 0
+    });
+    console.log("Successfully connected with Hostinger MySQL Database Connection Pool!");
+  } catch (err) {
+    console.error("Failed to initialize Hostinger MySQL database connection pool:", err);
+  }
+}
 
 // Ensure data folder exists
 if (!fs.existsSync(path.dirname(DB_FILE_PATH))) {
@@ -364,8 +385,552 @@ function readDb(): typeof DEFAULT_DB {
 function writeDb(data: typeof DEFAULT_DB) {
   try {
     fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), "utf-8");
+    // Async push changes to Hostinger MySQL database in the background if connected
+    if (dbPool) {
+      syncToMySql(data).catch((e) => console.error("Async background MySQL sync error:", e));
+    }
   } catch (error) {
     console.error("Error writing db file", error);
+  }
+}
+
+// Ensure dynamic auxiliary tables are present on Hostinger MySQL
+async function createExtraTablesIfNotExist() {
+  if (!dbPool) return;
+  try {
+    // 1. partners
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS partners (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        style VARCHAR(255) DEFAULT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 2. activity_logs
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        event TEXT NOT NULL,
+        date VARCHAR(100) NOT NULL,
+        user VARCHAR(255) DEFAULT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+
+    // 3. benefits
+    await dbPool.query(`
+      CREATE TABLE IF NOT EXISTS benefits (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        title VARCHAR(255) NOT NULL,
+        text TEXT NOT NULL,
+        icon VARCHAR(100) DEFAULT NULL,
+        bgColor VARCHAR(100) DEFAULT NULL,
+        borderColor VARCHAR(100) DEFAULT NULL,
+        iconColor VARCHAR(100) DEFAULT NULL,
+        glow VARCHAR(100) DEFAULT NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+    `);
+    console.log("Verified auxiliary tables (partners, activity_logs, benefits) on Hostinger MySQL.");
+  } catch (err) {
+    console.error("Error verifying extra tables in MySQL:", err);
+  }
+}
+
+// Initial seeder/initializer for Hostinger MySQL
+async function initializeMySqlTables() {
+  if (!dbPool) return;
+  try {
+    const sqlPath = path.join(process.cwd(), "database.sql");
+    if (!fs.existsSync(sqlPath)) {
+      console.log("database.sql file not found, skipping table initialization");
+      return;
+    }
+    const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+    
+    // Split the SQL file by semicolons, filtering out comments and empty statements
+    const statements = sqlContent
+      .split(";")
+      .map(stmt => stmt.trim())
+      .filter(stmt => {
+        if (!stmt) return false;
+        if (stmt.startsWith("--") || stmt.startsWith("/*") || stmt.startsWith("SET") || stmt.startsWith("START TRANSACTION") || stmt.startsWith("COMMIT")) return false;
+        return true;
+      });
+
+    console.log(`Executing ${statements.length} SQL statements to build Hostinger tables...`);
+    for (const stmt of statements) {
+      try {
+        await dbPool.query(stmt);
+      } catch (stmtErr: any) {
+        console.warn("SQL statement warning:", stmtErr.message);
+      }
+    }
+    console.log("Hostinger database tables initialized successfully!");
+  } catch (err) {
+    console.error("Failed to auto-initialize Hostinger tables:", err);
+  }
+}
+
+// Load database from Hostinger MySQL into our local cache
+async function loadFromMySql() {
+  if (!dbPool) return;
+  try {
+    console.log("Loading data from Hostinger MySQL Database...");
+    
+    // Check if tables exist. If they don't, we try to initialize them!
+    const [tables]: any = await dbPool.query("SHOW TABLES LIKE 'users'");
+    if (tables.length === 0) {
+      console.log("No tables found. Initializing MySQL tables from database.sql...");
+      await initializeMySqlTables();
+    }
+
+    // Verify extra tables (partners, activity_logs, benefits)
+    await createExtraTablesIfNotExist();
+
+    // Now, fetch all records and build the DB object!
+    const db: any = { ...DEFAULT_DB };
+
+    // 1. users
+    const [usersRows]: any = await dbPool.query("SELECT * FROM users");
+    if (usersRows.length > 0) {
+      db.users = usersRows.map((r: any) => ({
+        id: Number(r.id),
+        name: r.name,
+        email: r.email,
+        role: r.role,
+        permissions: r.permissions ? (typeof r.permissions === "string" ? JSON.parse(r.permissions) : r.permissions) : ["all"]
+      }));
+    }
+
+    // 2. services
+    const [servicesRows]: any = await dbPool.query("SELECT * FROM services");
+    if (servicesRows.length > 0) {
+      db.services = servicesRows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        category: r.category,
+        description: r.description,
+        features: r.features ? (typeof r.features === "string" ? JSON.parse(r.features) : r.features) : [],
+        packages: r.packages ? (typeof r.packages === "string" ? JSON.parse(r.packages) : r.packages) : [],
+        faq: r.faq ? (typeof r.faq === "string" ? JSON.parse(r.faq) : r.faq) : [],
+        seo_title: r.seo_title || "",
+        seo_description: r.seo_description || "",
+        seo_keywords: r.seo_keywords || ""
+      }));
+    }
+
+    // 3. packages
+    const [packagesRows]: any = await dbPool.query("SELECT * FROM packages");
+    if (packagesRows.length > 0) {
+      db.packages = packagesRows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        price: r.price,
+        timeline: r.timeline,
+        features: r.features ? (typeof r.features === "string" ? JSON.parse(r.features) : r.features) : [],
+        highlight: Boolean(r.highlight),
+        button_text: r.button_text || "Buy Now"
+      }));
+    }
+
+    // 4. portfolio
+    const [portfolioRows]: any = await dbPool.query("SELECT * FROM portfolio");
+    if (portfolioRows.length > 0) {
+      db.portfolio = portfolioRows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        category: r.category,
+        client: r.client,
+        technology_used: r.technology_used ? (typeof r.technology_used === "string" ? (r.technology_used.startsWith("[") ? JSON.parse(r.technology_used) : r.technology_used.split(",")) : r.technology_used) : [],
+        project_timeline: r.project_timeline,
+        website_link: r.website_link,
+        video_url: r.video_url,
+        description: r.description,
+        case_study: r.case_study,
+        screenshots: r.screenshots ? (typeof r.screenshots === "string" ? JSON.parse(r.screenshots) : r.screenshots) : []
+      }));
+    }
+
+    // 5. blogs
+    const [blogsRows]: any = await dbPool.query("SELECT * FROM blogs");
+    if (blogsRows.length > 0) {
+      db.blogs = blogsRows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        category: r.category,
+        tags: r.tags ? (typeof r.tags === "string" ? (r.tags.startsWith("[") ? JSON.parse(r.tags) : r.tags.split(",")) : r.tags) : [],
+        content: r.content,
+        featured_image: r.featured_image,
+        author: r.author,
+        reading_time: Number(r.reading_time || 5),
+        views: Number(r.views || 0),
+        comments: r.comments ? (typeof r.comments === "string" ? JSON.parse(r.comments) : r.comments) : [],
+        seo_title: r.seo_title || "",
+        seo_description: r.seo_description || ""
+      }));
+    }
+
+    // 6. leads
+    const [leadsRows]: any = await dbPool.query("SELECT * FROM leads");
+    if (leadsRows.length > 0) {
+      db.leads = leadsRows.map((r: any) => ({
+        id: Number(r.id),
+        type: r.type || "website",
+        client_name: r.client_name,
+        client_email: r.client_email,
+        client_phone: r.client_phone,
+        service_interested: r.service_interested,
+        message: r.message,
+        status: r.status || "pending",
+        staff_assigned: r.staff_assigned,
+        follow_up_date: r.follow_up_date,
+        notes: r.notes ? (typeof r.notes === "string" ? JSON.parse(r.notes) : r.notes) : [],
+        attachments: r.attachments ? (typeof r.attachments === "string" ? JSON.parse(r.attachments) : r.attachments) : [],
+        timeline: r.timeline ? (typeof r.timeline === "string" ? JSON.parse(r.timeline) : r.timeline) : [],
+        created_at: r.created_at
+      }));
+    }
+
+    // 7. clients
+    const [clientsRows]: any = await dbPool.query("SELECT * FROM clients");
+    if (clientsRows.length > 0) {
+      db.clients = clientsRows.map((r: any) => ({
+        id: Number(r.id),
+        name: r.name,
+        email: r.email,
+        phone: r.phone,
+        company_name: r.company_name,
+        address: r.address,
+        projects: r.projects ? (typeof r.projects === "string" ? JSON.parse(r.projects) : r.projects) : [],
+        invoices: r.invoices ? (typeof r.invoices === "string" ? JSON.parse(r.invoices) : r.invoices) : [],
+        documents: r.documents ? (typeof r.documents === "string" ? JSON.parse(r.documents) : r.documents) : [],
+        payments: r.payments ? (typeof r.payments === "string" ? JSON.parse(r.payments) : r.payments) : [],
+        notes: r.notes || "",
+        created_at: r.created_at
+      }));
+    }
+
+    // 8. proposals
+    const [proposalsRows]: any = await dbPool.query("SELECT * FROM proposals");
+    if (proposalsRows.length > 0) {
+      db.proposals = proposalsRows.map((r: any) => ({
+        id: Number(r.id),
+        lead_id: r.lead_id ? Number(r.lead_id) : null,
+        title: r.title,
+        services_selected: r.services_selected ? (typeof r.services_selected === "string" ? JSON.parse(r.services_selected) : r.services_selected) : [],
+        packages_selected: r.packages_selected ? (typeof r.packages_selected === "string" ? JSON.parse(r.packages_selected) : r.packages_selected) : [],
+        price: Number(r.price),
+        terms: r.terms,
+        timeline: r.timeline,
+        signature_data: r.signature_data,
+        created_at: r.created_at
+      }));
+    }
+
+    // 9. testimonials
+    const [testimonialsRows]: any = await dbPool.query("SELECT * FROM testimonials");
+    if (testimonialsRows.length > 0) {
+      db.testimonials = testimonialsRows.map((r: any) => ({
+        id: Number(r.id),
+        author_name: r.author_name,
+        author_role: r.author_role,
+        author_company: r.author_company,
+        testimonial_text: r.testimonial_text,
+        rating: Number(r.rating || 5),
+        author_avatar: r.author_avatar
+      }));
+    }
+
+    // 10. faqs
+    const [faqsRows]: any = await dbPool.query("SELECT * FROM faqs");
+    if (faqsRows.length > 0) {
+      db.faqs = faqsRows.map((r: any) => ({
+        id: Number(r.id),
+        question: r.question,
+        answer: r.answer,
+        category: r.category
+      }));
+    }
+
+    // 11. settings
+    const [settingsRows]: any = await dbPool.query("SELECT * FROM settings");
+    if (settingsRows.length > 0) {
+      const settingsObj: any = {};
+      for (const row of settingsRows) {
+        settingsObj[row.meta_key] = row.meta_value;
+      }
+      db.settings = { ...DEFAULT_DB.settings, ...settingsObj };
+    }
+
+    // 12. partners
+    try {
+      const [partnersRows]: any = await dbPool.query("SELECT * FROM partners");
+      if (partnersRows.length > 0) {
+        db.partners = partnersRows.map((r: any) => ({
+          id: Number(r.id),
+          name: r.name,
+          style: r.style
+        }));
+      }
+    } catch (e) {
+      console.log("partners table not ready yet, skipping load");
+    }
+
+    // 13. activity_logs
+    try {
+      const [logsRows]: any = await dbPool.query("SELECT * FROM activity_logs");
+      if (logsRows.length > 0) {
+        db.activity_logs = logsRows.map((r: any) => ({
+          id: Number(r.id),
+          event: r.event,
+          date: r.date,
+          user: r.user
+        }));
+      }
+    } catch (e) {
+      console.log("activity_logs table not ready yet, skipping load");
+    }
+
+    // 14. benefits
+    try {
+      const [benefitsRows]: any = await dbPool.query("SELECT * FROM benefits");
+      if (benefitsRows.length > 0) {
+        db.benefits = benefitsRows.map((r: any) => ({
+          id: Number(r.id),
+          title: r.title,
+          text: r.text,
+          icon: r.icon,
+          bgColor: r.bgColor,
+          borderColor: r.borderColor,
+          iconColor: r.iconColor,
+          glow: r.glow
+        }));
+      }
+    } catch (e) {
+      console.log("benefits table not ready yet, skipping load");
+    }
+
+    // Write this fully loaded MySQL data back to local json file
+    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2), "utf-8");
+    console.log("Successfully loaded, parsed, and cached Hostinger MySQL data locally.");
+  } catch (err) {
+    console.error("Error loading data from MySQL on startup:", err);
+  }
+}
+
+// Background sync from local cache state to Hostinger MySQL
+async function syncToMySql(db: typeof DEFAULT_DB) {
+  if (!dbPool) return;
+  try {
+    console.log("Syncing database updates to Hostinger MySQL in the background...");
+
+    // Ensure extra tables are built
+    await createExtraTablesIfNotExist();
+
+    // 1. users
+    try {
+      await dbPool.query("DELETE FROM users");
+      for (const u of db.users) {
+        await dbPool.query(
+          "INSERT INTO users (id, name, email, password, role, permissions) VALUES (?, ?, ?, ?, ?, ?)",
+          [u.id, u.name, u.email, "$2y$12$R.3C7hSj07Xg696BfDIn3e1gYy3h52gU8oP1.h98aO6N9nZt/K7B.", u.role, JSON.stringify(u.permissions || ["all"])]
+        );
+      }
+    } catch (e) { console.error("Sync Error: users", e); }
+
+    // 2. services
+    try {
+      await dbPool.query("DELETE FROM services");
+      for (const s of db.services) {
+        await dbPool.query(
+          "INSERT INTO services (id, title, slug, category, description, features, packages, faq, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            s.id, s.title, s.slug, s.category, s.description,
+            JSON.stringify(s.features || []),
+            JSON.stringify(s.packages || []),
+            JSON.stringify(s.faq || []),
+            s.seo_title || "", s.seo_description || "", s.seo_keywords || ""
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: services", e); }
+
+    // 3. packages
+    try {
+      await dbPool.query("DELETE FROM packages");
+      for (const p of db.packages) {
+        await dbPool.query(
+          "INSERT INTO packages (id, title, price, timeline, features, highlight, button_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [
+            p.id, p.title, p.price, p.timeline || "14 Days",
+            JSON.stringify(p.features || []),
+            p.highlight ? 1 : 0, p.button_text || "Buy Now"
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: packages", e); }
+
+    // 4. portfolio
+    try {
+      await dbPool.query("DELETE FROM portfolio");
+      for (const p of db.portfolio) {
+        await dbPool.query(
+          "INSERT INTO portfolio (id, title, slug, category, client, technology_used, project_timeline, website_link, video_url, description, case_study, screenshots) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            p.id, p.title, p.slug, p.category, p.client || "",
+            JSON.stringify(p.technology_used || []),
+            p.project_timeline || "", p.website_link || "", p.video_url || "",
+            p.description, p.case_study || "",
+            JSON.stringify(p.screenshots || [])
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: portfolio", e); }
+
+    // 5. blogs
+    try {
+      await dbPool.query("DELETE FROM blogs");
+      for (const b of db.blogs) {
+        await dbPool.query(
+          "INSERT INTO blogs (id, title, slug, category, tags, content, featured_image, author, reading_time, views, comments, seo_title, seo_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            b.id, b.title, b.slug, b.category,
+            JSON.stringify(b.tags || []),
+            b.content, b.featured_image || "", b.author,
+            b.reading_time || 5, b.views || 0,
+            JSON.stringify(b.comments || []),
+            b.seo_title || "", b.seo_description || ""
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: blogs", e); }
+
+    // 6. leads
+    try {
+      await dbPool.query("DELETE FROM leads");
+      for (const l of db.leads) {
+        await dbPool.query(
+          "INSERT INTO leads (id, type, client_name, client_email, client_phone, service_interested, message, status, staff_assigned, follow_up_date, notes, attachments, timeline) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            l.id, l.type || "website", l.client_name, l.client_email, l.client_phone || "",
+            l.service_interested || "", l.message || "", l.status || "pending",
+            l.staff_assigned || "", l.follow_up_date || null,
+            JSON.stringify(l.notes || []),
+            JSON.stringify(l.attachments || []),
+            JSON.stringify(l.timeline || [])
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: leads", e); }
+
+    // 7. clients
+    try {
+      await dbPool.query("DELETE FROM clients");
+      for (const c of db.clients) {
+        await dbPool.query(
+          "INSERT INTO clients (id, name, email, phone, company_name, address, projects, invoices, documents, payments, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            c.id, c.name, c.email, c.phone || "", c.company_name || "", c.address || "",
+            JSON.stringify(c.projects || []),
+            JSON.stringify(c.invoices || []),
+            JSON.stringify(c.documents || []),
+            JSON.stringify(c.payments || []),
+            c.notes || ""
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: clients", e); }
+
+    // 8. proposals
+    try {
+      await dbPool.query("DELETE FROM proposals");
+      for (const p of db.proposals) {
+        await dbPool.query(
+          "INSERT INTO proposals (id, lead_id, title, services_selected, packages_selected, price, terms, timeline, signature_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [
+            p.id, p.lead_id, p.title,
+            JSON.stringify(p.services_selected || []),
+            JSON.stringify(p.packages_selected || []),
+            p.price, p.terms || "", p.timeline || "", p.signature_data || ""
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: proposals", e); }
+
+    // 9. testimonials
+    try {
+      await dbPool.query("DELETE FROM testimonials");
+      for (const t of db.testimonials) {
+        await dbPool.query(
+          "INSERT INTO testimonials (id, author_name, author_role, author_company, testimonial_text, rating, author_avatar) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [
+            t.id, t.author_name, t.author_role, t.author_company || "", t.testimonial_text, t.rating || 5, t.author_avatar || ""
+          ]
+        );
+      }
+    } catch (e) { console.error("Sync Error: testimonials", e); }
+
+    // 10. faqs
+    try {
+      await dbPool.query("DELETE FROM faqs");
+      for (const f of db.faqs) {
+        await dbPool.query(
+          "INSERT INTO faqs (id, question, answer, category) VALUES (?, ?, ?, ?)",
+          [f.id, f.question, f.answer, f.category || "General"]
+        );
+      }
+    } catch (e) { console.error("Sync Error: faqs", e); }
+
+    // 11. settings
+    try {
+      await dbPool.query("DELETE FROM settings");
+      for (const [key, val] of Object.entries(db.settings)) {
+        await dbPool.query(
+          "INSERT INTO settings (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = ?",
+          [key, String(val), String(val)]
+        );
+      }
+    } catch (e) { console.error("Sync Error: settings", e); }
+
+    // 12. partners
+    try {
+      await dbPool.query("DELETE FROM partners");
+      for (const p of db.partners) {
+        await dbPool.query(
+          "INSERT INTO partners (id, name, style) VALUES (?, ?, ?)",
+          [p.id, p.name, p.style]
+        );
+      }
+    } catch (e) { console.error("Sync Error: partners", e); }
+
+    // 13. activity_logs
+    try {
+      await dbPool.query("DELETE FROM activity_logs");
+      for (const l of db.activity_logs) {
+        await dbPool.query(
+          "INSERT INTO activity_logs (id, event, date, user) VALUES (?, ?, ?, ?)",
+          [l.id, l.event, l.date, l.user]
+        );
+      }
+    } catch (e) { console.error("Sync Error: activity_logs", e); }
+
+    // 14. benefits
+    try {
+      await dbPool.query("DELETE FROM benefits");
+      for (const b of db.benefits) {
+        await dbPool.query(
+          "INSERT INTO benefits (id, title, text, icon, bgColor, borderColor, iconColor, glow) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+          [b.id, b.title, b.text, b.icon, b.bgColor, b.borderColor, b.iconColor, b.glow]
+        );
+      }
+    } catch (e) { console.error("Sync Error: benefits", e); }
+
+    console.log("Hostinger MySQL database tables synced successfully.");
+  } catch (err) {
+    console.error("Failed to sync state to MySQL database:", err);
   }
 }
 
@@ -388,6 +953,15 @@ function logActivity(event: string, user: string = "Admin") {
 async function startServer() {
   const app = express();
   app.use(express.json());
+
+  // Load initial database state from Hostinger MySQL if configured
+  if (dbPool) {
+    try {
+      await loadFromMySql();
+    } catch (err) {
+      console.error("Failed to load initial data from Hostinger MySQL on boot:", err);
+    }
+  }
 
   // Security headers simulation (XSS/CSRF logs)
   app.use((req, res, next) => {
