@@ -1,0 +1,6 @@
+{
+  "name": "Creattivee",
+  "description": "Premium, modern, and fully dynamic Digital Agency website with a gorgeous glassmorphism layout, complete admin dashboard, lead/client management, and proposal builder.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
