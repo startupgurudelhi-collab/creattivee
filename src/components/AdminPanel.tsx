@@ -2,9 +2,10 @@ import React, { useState, useEffect } from "react";
 import {
   Users, Briefcase, FileText, Settings, Database, Plus, Edit, Trash, Upload,
   Calendar, Check, UserPlus, Clock, MessageSquare, Mail, Phone, MapPin, Tag,
-  Download, Sparkles, BookOpen, LayoutGrid, Layers, HelpCircle, UserCheck, Play, Shield, X
+  Download, Sparkles, BookOpen, LayoutGrid, Layers, HelpCircle, UserCheck, Play, Shield, X, Building2,
+  Target, Brain, Palette, Zap, Smartphone, Search, HeartHandshake, TrendingUp, Laptop, ShieldCheck, Heart, User, Kanban, Lock, Globe, Rocket, Smile
 } from "lucide-react";
-import { Lead, Client, Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings, ActivityLog } from "../types";
+import { Lead, Client, Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings, ActivityLog, Partner, Benefit } from "../types";
 import ProposalPrintable from "./ProposalPrintable";
 import { motion } from "motion/react";
 import Logo from "./Logo";
@@ -14,7 +15,7 @@ interface AdminPanelProps {
 }
 
 export default function AdminPanel({ onLogout }: AdminPanelProps) {
-  const [activeTab, setActiveTab] = useState<"dashboard" | "leads" | "clients" | "proposals" | "cms-services" | "cms-packages" | "cms-portfolio" | "cms-blogs" | "cms-testimonials" | "cms-faqs" | "settings">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "leads" | "clients" | "proposals" | "cms-services" | "cms-packages" | "cms-portfolio" | "cms-partners" | "cms-blogs" | "cms-testimonials" | "cms-faqs" | "settings">("dashboard");
 
   // State Stores
   const [leads, setLeads] = useState<Lead[]>([]);
@@ -49,6 +50,39 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [packageFeatures, setPackageFeatures] = useState("");
   const [packageHighlight, setPackageHighlight] = useState(false);
 
+  // Portfolio CMS Form States
+  const [showPortfolioForm, setShowPortfolioForm] = useState(false);
+  const [editingPortfolioId, setEditingPortfolioId] = useState<number | null>(null);
+  const [portfolioTitle, setPortfolioTitle] = useState("");
+  const [portfolioCategory, setPortfolioCategory] = useState("Fintech");
+  const [portfolioClient, setPortfolioClient] = useState("");
+  const [portfolioTech, setPortfolioTech] = useState("");
+  const [portfolioTimeline, setPortfolioTimeline] = useState("");
+  const [portfolioLink, setPortfolioLink] = useState("");
+  const [portfolioVideo, setPortfolioVideo] = useState("");
+  const [portfolioDesc, setPortfolioDesc] = useState("");
+  const [portfolioCaseStudy, setPortfolioCaseStudy] = useState("");
+  const [portfolioScreenshots, setPortfolioScreenshots] = useState("");
+
+  // Partner CMS Form States
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [showPartnerForm, setShowPartnerForm] = useState(false);
+  const [editingPartnerId, setEditingPartnerId] = useState<number | null>(null);
+  const [partnerName, setPartnerName] = useState("");
+  const [partnerStyle, setPartnerStyle] = useState("font-bold text-lg md:text-xl text-slate-600");
+
+  // Benefits CMS Form States
+  const [benefits, setBenefits] = useState<Benefit[]>([]);
+  const [showBenefitForm, setShowBenefitForm] = useState(false);
+  const [editingBenefitId, setEditingBenefitId] = useState<number | null>(null);
+  const [benefitTitle, setBenefitTitle] = useState("");
+  const [benefitText, setBenefitText] = useState("");
+  const [benefitIcon, setBenefitIcon] = useState("Brain");
+  const [benefitBgColor, setBenefitBgColor] = useState("bg-purple-50");
+  const [benefitBorderColor, setBenefitBorderColor] = useState("border-purple-100/60");
+  const [benefitIconColor, setBenefitIconColor] = useState("text-purple-600");
+  const [benefitGlow, setBenefitGlow] = useState("hover:shadow-purple-100/40");
+
   // Lead Details Drawer States
   const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [leadNoteText, setLeadNoteText] = useState("");
@@ -77,7 +111,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   // Fetch all core datasets from server API
   const fetchAllData = async () => {
     try {
-      const [leadsRes, clientsRes, servicesRes, packagesRes, portfolioRes, blogsRes, faqsRes, testimonialsRes, settingsRes, logsRes] = await Promise.all([
+      const [leadsRes, clientsRes, servicesRes, packagesRes, portfolioRes, blogsRes, faqsRes, testimonialsRes, settingsRes, logsRes, partnersRes, benefitsRes] = await Promise.all([
         fetch("/api/leads").then(r => r.json()),
         fetch("/api/clients").then(r => r.json()),
         fetch("/api/services").then(r => r.json()),
@@ -87,7 +121,9 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         fetch("/api/faqs").then(r => r.json()),
         fetch("/api/testimonials").then(r => r.json()),
         fetch("/api/settings").then(r => r.json()),
-        fetch("/api/activity-logs").then(r => r.json())
+        fetch("/api/activity-logs").then(r => r.json()),
+        fetch("/api/partners").then(r => r.json()).catch(() => []),
+        fetch("/api/benefits").then(r => r.json()).catch(() => [])
       ]);
 
       setLeads(leadsRes);
@@ -100,6 +136,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       setTestimonials(testimonialsRes);
       setSettings(settingsRes);
       setActivityLogs(logsRes);
+      setPartners(partnersRes);
+      setBenefits(benefitsRes);
 
       // Populate Settings inputs once
       if (settingsRes) {
@@ -386,6 +424,187 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     }
   };
 
+  // Portfolio CMS CRUD
+  const handleSavePortfolio = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      title: portfolioTitle,
+      slug: portfolioTitle.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)+/g, ""),
+      category: portfolioCategory,
+      client: portfolioClient,
+      technology_used: portfolioTech.split(",").map(t => t.trim()).filter(Boolean),
+      project_timeline: portfolioTimeline,
+      website_link: portfolioLink,
+      video_url: portfolioVideo,
+      description: portfolioDesc,
+      case_study: portfolioCaseStudy,
+      screenshots: portfolioScreenshots.split(",").map(s => s.trim()).filter(Boolean),
+    };
+
+    try {
+      const endpoint = editingPortfolioId ? `/api/portfolio/${editingPortfolioId}` : "/api/portfolio";
+      const method = editingPortfolioId ? "PUT" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setPortfolioTitle("");
+        setPortfolioCategory("Fintech");
+        setPortfolioClient("");
+        setPortfolioTech("");
+        setPortfolioTimeline("");
+        setPortfolioLink("");
+        setPortfolioVideo("");
+        setPortfolioDesc("");
+        setPortfolioCaseStudy("");
+        setPortfolioScreenshots("");
+        setEditingPortfolioId(null);
+        setShowPortfolioForm(false);
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleEditPortfolioTrigger = (item: PortfolioItem) => {
+    setEditingPortfolioId(item.id);
+    setPortfolioTitle(item.title);
+    setPortfolioCategory(item.category);
+    setPortfolioClient(item.client || "");
+    setPortfolioTech(item.technology_used.join(", "));
+    setPortfolioTimeline(item.project_timeline || "");
+    setPortfolioLink(item.website_link || "");
+    setPortfolioVideo(item.video_url || "");
+    setPortfolioDesc(item.description);
+    setPortfolioCaseStudy(item.case_study || "");
+    setPortfolioScreenshots(item.screenshots.join(", "));
+    setShowPortfolioForm(true);
+  };
+
+  const handleDeletePortfolio = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this showroom project?")) return;
+    try {
+      const res = await fetch(`/api/portfolio/${id}`, { method: "DELETE" });
+      if (res.ok) fetchAllData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Partners CMS CRUD
+  const handleSavePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      name: partnerName,
+      style: partnerStyle,
+    };
+
+    try {
+      const endpoint = editingPartnerId ? `/api/partners/${editingPartnerId}` : "/api/partners";
+      const method = editingPartnerId ? "PUT" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setPartnerName("");
+        setPartnerStyle("font-bold text-lg md:text-xl text-slate-600");
+        setEditingPartnerId(null);
+        setShowPartnerForm(false);
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleEditPartnerTrigger = (p: Partner) => {
+    setEditingPartnerId(p.id);
+    setPartnerName(p.name);
+    setPartnerStyle(p.style);
+    setShowPartnerForm(true);
+  };
+
+  const handleDeletePartner = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this partner logo?")) return;
+    try {
+      const res = await fetch(`/api/partners/${id}`, { method: "DELETE" });
+      if (res.ok) fetchAllData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // --- Benefits CMS CRUD Handlers ---
+  const handleSaveBenefit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const payload = {
+      title: benefitTitle,
+      text: benefitText,
+      icon: benefitIcon,
+      bgColor: benefitBgColor,
+      borderColor: benefitBorderColor,
+      iconColor: benefitIconColor,
+      glow: benefitGlow,
+    };
+
+    try {
+      const endpoint = editingBenefitId ? `/api/benefits/${editingBenefitId}` : "/api/benefits";
+      const method = editingBenefitId ? "PUT" : "POST";
+
+      const res = await fetch(endpoint, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (res.ok) {
+        setBenefitTitle("");
+        setBenefitText("");
+        setBenefitIcon("Brain");
+        setBenefitBgColor("bg-purple-50");
+        setBenefitBorderColor("border-purple-100/60");
+        setBenefitIconColor("text-purple-600");
+        setBenefitGlow("hover:shadow-purple-100/40");
+        setEditingBenefitId(null);
+        setShowBenefitForm(false);
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const handleEditBenefitTrigger = (b: Benefit) => {
+    setEditingBenefitId(b.id);
+    setBenefitTitle(b.title);
+    setBenefitText(b.text);
+    setBenefitIcon(b.icon);
+    setBenefitBgColor(b.bgColor || "bg-purple-50");
+    setBenefitBorderColor(b.borderColor || "border-purple-100/60");
+    setBenefitIconColor(b.iconColor || "text-purple-600");
+    setBenefitGlow(b.glow || "hover:shadow-purple-100/40");
+    setShowBenefitForm(true);
+  };
+
+  const handleDeleteBenefit = async (id: number) => {
+    if (!confirm("Are you sure you want to delete this benefit card?")) return;
+    try {
+      const res = await fetch(`/api/benefits/${id}`, { method: "DELETE" });
+      if (res.ok) fetchAllData();
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   // General Settings update
   const handleUpdateSettings = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -438,7 +657,10 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
               { id: "clients", label: "Client Portfolio CRM", icon: <UserCheck className="w-4 h-4" /> },
               { id: "proposals", label: "Proposal PDF Generator", icon: <FileText className="w-4 h-4" /> },
               { id: "cms-services", label: "Configure Services", icon: <Layers className="w-4 h-4" /> },
+              { id: "cms-portfolio", label: "Configure Showrooms", icon: <Briefcase className="w-4 h-4" /> },
               { id: "cms-packages", label: "Configure Packages", icon: <Sparkles className="w-4 h-4" /> },
+              { id: "cms-partners", label: "Configure Partners", icon: <Building2 className="w-4 h-4" /> },
+              { id: "cms-benefits", label: "Configure Benefits", icon: <Target className="w-4 h-4" /> },
               { id: "settings", label: "SMTP & Sitemap", icon: <Settings className="w-4 h-4" /> }
             ].map((tab) => (
               <button
@@ -1089,6 +1311,493 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   </ul>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: CONFIGURE SHOWROOMS (PORTFOLIO CMS) */}
+        {activeTab === "cms-portfolio" && (
+          <div className="space-y-6 print:hidden animate-fade-in">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-display font-extrabold text-slate-800">Configure Category Showrooms</h3>
+                <p className="text-xs text-slate-500">Deploy custom client case studies, technology stacks, live URLs, and media assets</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingPortfolioId(null);
+                  setPortfolioTitle("");
+                  setPortfolioCategory("Fintech");
+                  setPortfolioClient("");
+                  setPortfolioTech("");
+                  setPortfolioTimeline("");
+                  setPortfolioLink("");
+                  setPortfolioVideo("");
+                  setPortfolioDesc("");
+                  setPortfolioCaseStudy("");
+                  setPortfolioScreenshots("");
+                  setShowPortfolioForm(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-purple-600 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-purple-soft"
+              >
+                <Plus className="w-4 h-4" /> Add Dynamic Showroom
+              </button>
+            </div>
+
+            {/* Portfolio Form Drawer */}
+            {showPortfolioForm && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4"
+              >
+                <h5 className="font-display font-bold text-slate-800 text-sm">
+                  {editingPortfolioId ? "Modify Showroom specs" : "Add Showroom case study"}
+                </h5>
+                <form onSubmit={handleSavePortfolio} className="space-y-3.5">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Project Title</label>
+                      <input
+                        type="text" required placeholder="e.g. Futura Bank FinTech UI" value={portfolioTitle} onChange={(e) => setPortfolioTitle(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Category</label>
+                      <select
+                        value={portfolioCategory} onChange={(e) => setPortfolioCategory(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      >
+                        <option value="Fintech">Fintech</option>
+                        <option value="SaaS">SaaS</option>
+                        <option value="Design">Design</option>
+                        <option value="Development">Development</option>
+                        <option value="Marketing">Marketing</option>
+                        <option value="ERP">ERP</option>
+                      </select>
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Client Name</label>
+                      <input
+                        type="text" placeholder="e.g. Futura Inc" value={portfolioClient} onChange={(e) => setPortfolioClient(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Project Timeline</label>
+                      <input
+                        type="text" placeholder="e.g. 3 Weeks" value={portfolioTimeline} onChange={(e) => setPortfolioTimeline(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Live Website URL</label>
+                      <input
+                        type="url" placeholder="https://..." value={portfolioLink} onChange={(e) => setPortfolioLink(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Video Embed/URL</label>
+                      <input
+                        type="url" placeholder="https://..." value={portfolioVideo} onChange={(e) => setPortfolioVideo(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Technologies Used (comma separated)</label>
+                    <input
+                      type="text" required placeholder="React, Express, TailwindCSS, Chart.js" value={portfolioTech} onChange={(e) => setPortfolioTech(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white font-mono"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase">Screenshot Image URLs (comma separated)</label>
+                    <input
+                      type="text" required placeholder="https://images.unsplash.com/..." value={portfolioScreenshots} onChange={(e) => setPortfolioScreenshots(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white font-mono"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Short Description (for grid card)</label>
+                      <textarea
+                        required rows={3} placeholder="A brief visual description of this case study..." value={portfolioDesc} onChange={(e) => setPortfolioDesc(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Deep Case Study (Challenge vs. Execution detail)</label>
+                      <textarea
+                        rows={3} placeholder="Describe the business challenges met, standard optimizations, and custom components used..." value={portfolioCaseStudy} onChange={(e) => setPortfolioCaseStudy(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button type="submit" className="px-5 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-display font-bold cursor-pointer hover:opacity-95">
+                      Save Showroom
+                    </button>
+                    <button type="button" onClick={() => setShowPortfolioForm(false)} className="px-5 py-2.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold cursor-pointer">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {/* Portfolio Grid list */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {portfolio.map((item) => (
+                <div key={item.id} className="rounded-3xl bg-white border border-slate-100 shadow-sm overflow-hidden flex flex-col justify-between hover:translate-y-[-2px] transition-transform duration-300">
+                  <div>
+                    {/* Thumbnail */}
+                    <div className="relative h-40 bg-slate-100">
+                      <img
+                        src={item.screenshots[0] || "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=400&q=80"}
+                        alt={item.title}
+                        referrerPolicy="no-referrer"
+                        className="w-full h-full object-cover"
+                      />
+                      <span className="absolute top-3 left-3 px-2 py-1 bg-white/90 backdrop-blur-sm border border-slate-100 rounded-lg text-[9px] font-display font-extrabold uppercase tracking-widest text-slate-800">
+                        {item.category}
+                      </span>
+                    </div>
+
+                    <div className="p-5 space-y-2">
+                      <h4 className="font-display font-bold text-slate-800 text-sm leading-tight">{item.title}</h4>
+                      <p className="text-[11px] text-slate-500 font-medium line-clamp-3 leading-relaxed">{item.description}</p>
+                      <div className="flex flex-wrap gap-1 pt-1">
+                        {item.technology_used.slice(0, 3).map((tech, tIdx) => (
+                          <span key={tIdx} className="px-2 py-0.5 rounded bg-slate-50 border border-slate-100 text-[9px] font-mono text-slate-500 font-semibold">
+                            {tech}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-5 pt-0 border-t border-slate-50 flex justify-between items-center mt-auto">
+                    <span className="text-[10px] text-slate-400 font-mono">Client: {item.client || "Secret"}</span>
+                    <div className="flex items-center gap-1.5">
+                      <button onClick={() => handleEditPortfolioTrigger(item)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors cursor-pointer">
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handleDeletePortfolio(item.id)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer">
+                        <Trash className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB: CONFIGURE PARTNERS (LOGOS CMS) */}
+        {activeTab === "cms-partners" && (
+          <div className="space-y-6 print:hidden animate-fade-in">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-display font-extrabold text-slate-800">Configure Trusted Partners</h3>
+                <p className="text-xs text-slate-500">Add, edit, or remove logo banners of high growth enterprises displayed on your homepage</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingPartnerId(null);
+                  setPartnerName("");
+                  setPartnerStyle("font-bold text-lg md:text-xl text-slate-600");
+                  setShowPartnerForm(true);
+                }}
+                className="px-4 py-2.5 rounded-xl bg-purple-600 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-purple-soft"
+              >
+                <Plus className="w-4 h-4" /> Add Partner Logo
+              </button>
+            </div>
+
+            {/* Partner Form Drawer */}
+            {showPartnerForm && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4"
+              >
+                <h5 className="font-display font-bold text-slate-800 text-sm">
+                  {editingPartnerId ? "Modify Partner Logo specs" : "Add Partner Logo Specification"}
+                </h5>
+                <form onSubmit={handleSavePartner} className="space-y-3.5">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Partner Name / Logo Text</label>
+                      <input
+                        type="text" required placeholder="e.g. FUTURA.INC" value={partnerName} onChange={(e) => setPartnerName(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase">Tailwind Custom Style Classes</label>
+                      <input
+                        type="text" placeholder="e.g. font-extrabold text-lg md:text-xl text-slate-600 tracking-wide" value={partnerStyle} onChange={(e) => setPartnerStyle(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
+                    <span className="text-[10px] text-slate-400 font-mono block mb-2">Live Logo Preview:</span>
+                    <div className="opacity-65 hover:opacity-100 transition-opacity">
+                      <span className={partnerStyle || "font-display font-bold text-lg md:text-xl text-slate-600"}>
+                        {partnerName || "PREVIEW LOGO"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button type="submit" className="px-5 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-display font-bold cursor-pointer hover:opacity-95">
+                      Commit Logo
+                    </button>
+                    <button type="button" onClick={() => setShowPartnerForm(false)} className="px-5 py-2.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold cursor-pointer">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {/* Partners List Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {partners.map((p) => (
+                <div key={p.id} className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4 flex flex-col justify-between">
+                  <div className="flex justify-between items-start">
+                    <span className="text-[10px] text-slate-400 font-mono">Logo ID: #{p.id}</span>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button onClick={() => handleEditPartnerTrigger(p)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors cursor-pointer">
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button onClick={() => handleDeletePartner(p.id)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer">
+                        <Trash className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100/50 flex items-center justify-center min-h-[90px]">
+                    <span className={p.style || "font-display font-bold text-lg md:text-xl text-slate-600"}>
+                      {p.name}
+                    </span>
+                  </div>
+
+                  <div className="text-[10px] text-slate-400 font-mono leading-relaxed truncate">
+                    Style: {p.style}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB 6B: CONFIGURE BENEFITS */}
+        {activeTab === "cms-benefits" && (
+          <div className="space-y-6 print:hidden">
+            <div className="flex justify-between items-center">
+              <div>
+                <h3 className="text-2xl font-display font-extrabold text-slate-800">Configure Benefits</h3>
+                <p className="text-xs text-slate-500">Manage the dynamic cards rendered under the "Why Choose Us" section of the website</p>
+              </div>
+              <button
+                onClick={() => {
+                  setEditingBenefitId(null);
+                  setBenefitTitle("");
+                  setBenefitText("");
+                  setBenefitIcon("Brain");
+                  setBenefitBgColor("bg-purple-50");
+                  setBenefitBorderColor("border-purple-100/60");
+                  setBenefitIconColor("text-purple-600");
+                  setBenefitGlow("hover:shadow-purple-100/40");
+                  setShowBenefitForm(!showBenefitForm);
+                }}
+                className="px-4 py-2 bg-purple-600 hover:opacity-95 text-white font-display font-bold text-xs rounded-xl flex items-center gap-1.5 cursor-pointer"
+              >
+                {showBenefitForm ? "Close Drawer" : "Add Benefit Card"}
+              </button>
+            </div>
+
+            {showBenefitForm && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4"
+              >
+                <h4 className="text-xs font-bold uppercase tracking-widest text-slate-400">
+                  {editingBenefitId ? `Edit Benefit Card (ID: #${editingBenefitId})` : "Create New Benefit Card"}
+                </h4>
+
+                <form onSubmit={handleSaveBenefit} className="space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Benefit Title</label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="e.g. AI-Powered Solutions"
+                        value={benefitTitle}
+                        onChange={(e) => setBenefitTitle(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-purple-500"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Select Icon Type</label>
+                      <select
+                        value={benefitIcon}
+                        onChange={(e) => setBenefitIcon(e.target.value)}
+                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-purple-500 bg-white"
+                      >
+                        {["Brain", "Palette", "Zap", "Smartphone", "Search", "Layers", "HeartHandshake", "TrendingUp", "Sparkles", "Laptop", "ShieldCheck", "Heart", "User", "Kanban", "Lock", "Globe", "Rocket", "Smile"].map((icon) => (
+                          <option key={icon} value={icon}>{icon}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Benefit Explanation Description</label>
+                    <textarea
+                      required
+                      rows={3}
+                      placeholder="Explain this benefit to your clients in 2-3 descriptive lines."
+                      value={benefitText}
+                      onChange={(e) => setBenefitText(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 focus:outline-none focus:border-purple-500"
+                    />
+                  </div>
+
+                  {/* Preset Selector */}
+                  <div className="space-y-2 pt-2">
+                    <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">Theme Palette Presets</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { name: "Purple", bg: "bg-purple-50", border: "border-purple-100/60", icon: "text-purple-600", glow: "hover:shadow-purple-100/40" },
+                        { name: "Pink", bg: "bg-pink-50", border: "border-pink-100/60", icon: "text-pink-600", glow: "hover:shadow-pink-100/40" },
+                        { name: "Yellow", bg: "bg-yellow-50", border: "border-yellow-100/60", icon: "text-yellow-600", glow: "hover:shadow-yellow-100/40" },
+                        { name: "Blue", bg: "bg-blue-50", border: "border-blue-100/60", icon: "text-blue-600", glow: "hover:shadow-blue-100/40" },
+                        { name: "Sky", bg: "bg-sky-50", border: "border-sky-100/60", icon: "text-sky-600", glow: "hover:shadow-sky-100/40" },
+                        { name: "Green", bg: "bg-green-50", border: "border-green-100/60", icon: "text-green-600", glow: "hover:shadow-green-100/40" },
+                        { name: "Rose", bg: "bg-rose-50", border: "border-rose-100/60", icon: "text-rose-600", glow: "hover:shadow-rose-100/40" },
+                        { name: "Orange", bg: "bg-orange-50", border: "border-orange-100/60", icon: "text-orange-600", glow: "hover:shadow-orange-100/40" },
+                      ].map((preset) => (
+                        <button
+                          key={preset.name}
+                          type="button"
+                          onClick={() => {
+                            setBenefitBgColor(preset.bg);
+                            setBenefitBorderColor(preset.border);
+                            setBenefitIconColor(preset.icon);
+                            setBenefitGlow(preset.glow);
+                          }}
+                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center gap-1.5 hover:bg-slate-50 cursor-pointer ${
+                            benefitBgColor === preset.bg ? "border-purple-600 bg-purple-50/40 text-purple-700" : "border-slate-100 text-slate-600"
+                          }`}
+                        >
+                          <span className={`w-2.5 h-2.5 rounded-full ${preset.bg} border ${preset.border}`} />
+                          {preset.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Advanced Stylings */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 pt-2">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Background Class</label>
+                      <input
+                        type="text" required value={benefitBgColor} onChange={(e) => setBenefitBgColor(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-800"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Border Class</label>
+                      <input
+                        type="text" required value={benefitBorderColor} onChange={(e) => setBenefitBorderColor(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-800"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Icon Color Class</label>
+                      <input
+                        type="text" required value={benefitIconColor} onChange={(e) => setBenefitIconColor(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-800"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Glow Style Class</label>
+                      <input
+                        type="text" required value={benefitGlow} onChange={(e) => setBenefitGlow(e.target.value)}
+                        className="w-full px-3 py-1.5 rounded-xl border border-slate-200 text-[11px] font-mono text-slate-800"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2 pt-2">
+                    <button type="submit" className="px-5 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-display font-bold cursor-pointer hover:opacity-95">
+                      Commit Benefit Card
+                    </button>
+                    <button type="button" onClick={() => setShowBenefitForm(false)} className="px-5 py-2.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold cursor-pointer">
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {/* Benefits List Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {benefits.map((b) => {
+                const IconMap: Record<string, React.ComponentType<any>> = {
+                  Brain, Palette, Zap, Smartphone, Search, Layers, HeartHandshake, TrendingUp, Sparkles, Laptop, ShieldCheck, Heart, User, Kanban, Lock, Globe, Rocket, Smile
+                };
+                const IconComp = IconMap[b.icon] || Sparkles;
+                return (
+                  <div key={b.id} className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4 flex flex-col justify-between">
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-start">
+                        <span className="text-[10px] text-slate-400 font-mono">Benefit ID: #{b.id}</span>
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button onClick={() => handleEditBenefitTrigger(b)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors cursor-pointer">
+                            <Edit className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDeleteBenefit(b.id)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer">
+                            <Trash className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div className={`w-10 h-10 rounded-2xl ${b.bgColor || "bg-purple-50"} border ${b.borderColor || "border-purple-100/60"} flex items-center justify-center`}>
+                          <IconComp className={`w-5 h-5 ${b.iconColor || "text-purple-600"}`} />
+                        </div>
+                        <div>
+                          <h4 className="font-display font-extrabold text-slate-800 text-sm tracking-tight">{b.title}</h4>
+                          <p className="text-xs text-slate-500 font-medium leading-relaxed mt-1">{b.text}</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-[9px] text-slate-400 font-mono space-y-0.5 border-t border-slate-50 pt-2 shrink-0 truncate">
+                      <div>Icon: {b.icon}</div>
+                      <div className="truncate">Preset Colors: {b.bgColor} | {b.iconColor}</div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

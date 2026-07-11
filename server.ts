@@ -252,8 +252,97 @@ const DEFAULT_DB = {
     seo_default_title: "Creattivee | Custom Software & Creative Web Design Agency",
     seo_default_description: "High performance digital agency specializing in custom software, ERPs, SEO, and bespoke React development."
   },
+  partners: [
+    { id: 1, name: "FUTURA.INC", style: "font-extrabold text-lg md:text-xl text-slate-600 tracking-wide" },
+    { id: 2, name: "STYLEGRID", style: "font-bold text-lg md:text-xl text-slate-600 tracking-wider" },
+    { id: 3, name: "ACME.CO", style: "font-extrabold text-lg md:text-xl text-slate-600 italic" },
+    { id: 4, name: "FINGLOW", style: "font-medium text-lg md:text-xl text-slate-600" },
+    { id: 5, name: "RELIANCE", style: "font-black text-lg md:text-xl text-slate-600 tracking-widest" }
+  ],
   activity_logs: [
     { id: 1, event: "Database Initialized", date: "2026-07-11 06:29", user: "System" }
+  ],
+  benefits: [
+    {
+      id: 1,
+      title: "AI-Powered Solutions",
+      text: "We leverage the latest AI technologies to build smarter websites, web applications, and business software that automate workflows and improve productivity.",
+      icon: "Brain",
+      bgColor: "bg-purple-50",
+      borderColor: "border-purple-100/60",
+      iconColor: "text-purple-600",
+      glow: "hover:shadow-purple-100/40"
+    },
+    {
+      id: 2,
+      title: "Custom Design, No Templates",
+      text: "Every website and software is designed from scratch to match your brand identity, business goals, and user experience.",
+      icon: "Palette",
+      bgColor: "bg-pink-50",
+      borderColor: "border-pink-100/60",
+      iconColor: "text-pink-600",
+      glow: "hover:shadow-pink-100/40"
+    },
+    {
+      id: 3,
+      title: "Fast, Secure & Scalable",
+      text: "Our solutions are optimized for speed, security, SEO, and future growth, ensuring long-term performance.",
+      "icon": "Zap",
+      bgColor: "bg-yellow-50",
+      borderColor: "border-yellow-100/60",
+      iconColor: "text-yellow-600",
+      glow: "hover:shadow-yellow-100/40"
+    },
+    {
+      id: 4,
+      title: "Fully Responsive Experience",
+      text: "Every project works seamlessly across desktops, tablets, and mobile devices with a flawless user experience.",
+      icon: "Smartphone",
+      bgColor: "bg-blue-50",
+      borderColor: "border-blue-100/60",
+      iconColor: "text-blue-600",
+      glow: "hover:shadow-blue-100/40"
+    },
+    {
+      id: 5,
+      title: "SEO-Optimized Development",
+      text: "We build websites with technical SEO practices, helping your business rank higher and generate organic search leads.",
+      icon: "Search",
+      bgColor: "bg-sky-50",
+      borderColor: "border-sky-100/60",
+      iconColor: "text-sky-600",
+      glow: "hover:shadow-sky-100/40"
+    },
+    {
+      id: 6,
+      title: "Complete Digital Solutions",
+      text: "From websites and ERP systems to SaaS products, web apps, and eCommerce platforms, we provide end-to-end digital services.",
+      icon: "Layers",
+      bgColor: "bg-green-50",
+      borderColor: "border-green-100/60",
+      iconColor: "text-green-600",
+      glow: "hover:shadow-green-100/40"
+    },
+    {
+      id: 7,
+      title: "Dedicated Support",
+      text: "Our relationship doesn't end after launch. We provide continuous maintenance, updates, and active technical support.",
+      icon: "HeartHandshake",
+      bgColor: "bg-rose-50",
+      borderColor: "border-rose-100/60",
+      iconColor: "text-rose-600",
+      glow: "hover:shadow-rose-100/40"
+    },
+    {
+      id: 8,
+      title: "Business-Focused Approach",
+      text: "We don't just develop software—we create digital solutions that help businesses increase efficiency and scale faster.",
+      icon: "TrendingUp",
+      bgColor: "bg-orange-50",
+      borderColor: "border-orange-100/60",
+      iconColor: "text-orange-600",
+      glow: "hover:shadow-orange-100/40"
+    }
   ]
 };
 
@@ -425,6 +514,105 @@ async function startServer() {
       res.status(404).json({ message: "Package not found" });
     }
   });
+
+  // Partners CRUD
+  app.get("/api/partners", (req, res) => {
+    const db = readDb();
+    res.json(db.partners || []);
+  });
+
+  app.post("/api/partners", (req, res) => {
+    const db = readDb();
+    if (!db.partners) db.partners = [];
+    const newPartner = {
+      id: db.partners.length > 0 ? Math.max(...db.partners.map(p => p.id)) + 1 : 1,
+      ...req.body
+    };
+    db.partners.push(newPartner);
+    writeDb(db);
+    logActivity(`Created partner logo: ${newPartner.name}`);
+    res.json({ success: true, partner: newPartner });
+  });
+
+  app.put("/api/partners/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = readDb();
+    if (!db.partners) db.partners = [];
+    const index = db.partners.findIndex(p => p.id === id);
+    if (index !== -1) {
+      db.partners[index] = { ...db.partners[index], ...req.body };
+      writeDb(db);
+      logActivity(`Updated partner logo: ${db.partners[index].name}`);
+      res.json({ success: true, partner: db.partners[index] });
+    } else {
+      res.status(404).json({ message: "Partner not found" });
+    }
+  });
+
+  app.delete("/api/partners/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = readDb();
+    if (!db.partners) db.partners = [];
+    const partner = db.partners.find(p => p.id === id);
+    if (partner) {
+      db.partners = db.partners.filter(p => p.id !== id);
+      writeDb(db);
+      logActivity(`Deleted partner logo: ${partner.name}`);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ message: "Partner not found" });
+    }
+  });
+
+  // Benefits (Why Choose Us) CRUD
+  app.get("/api/benefits", (req, res) => {
+    const db = readDb();
+    res.json(db.benefits || []);
+  });
+
+  app.post("/api/benefits", (req, res) => {
+    const db = readDb();
+    if (!db.benefits) db.benefits = [];
+    const newBenefit = {
+      id: db.benefits.length > 0 ? Math.max(...db.benefits.map(b => b.id)) + 1 : 1,
+      ...req.body
+    };
+    db.benefits.push(newBenefit);
+    writeDb(db);
+    logActivity(`Created benefit: ${newBenefit.title}`);
+    res.json({ success: true, benefit: newBenefit });
+  });
+
+  app.put("/api/benefits/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = readDb();
+    if (!db.benefits) db.benefits = [];
+    const index = db.benefits.findIndex(b => b.id === id);
+    if (index !== -1) {
+      db.benefits[index] = { ...db.benefits[index], ...req.body };
+      writeDb(db);
+      logActivity(`Updated benefit: ${db.benefits[index].title}`);
+      res.json({ success: true, benefit: db.benefits[index] });
+    } else {
+      res.status(404).json({ message: "Benefit not found" });
+    }
+  });
+
+  app.delete("/api/benefits/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = readDb();
+    if (!db.benefits) db.benefits = [];
+    const benefit = db.benefits.find(b => b.id === id);
+    if (benefit) {
+      db.benefits = db.benefits.filter(b => b.id !== id);
+      writeDb(db);
+      logActivity(`Deleted benefit: ${benefit.title}`);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ message: "Benefit not found" });
+    }
+  });
+
 
   // Portfolio CRUD
   app.get("/api/portfolio", (req, res) => {

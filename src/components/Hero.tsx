@@ -1,13 +1,15 @@
 import React from "react";
 import { Sparkles, ArrowRight, ArrowDown, Activity, Globe, Zap, HeartHandshake } from "lucide-react";
 import { motion } from "motion/react";
+import { Partner } from "../types";
 
 interface HeroProps {
   onGetStarted: () => void;
   onExplorePortfolio: () => void;
+  partners?: Partner[];
 }
 
-export default function Hero({ onGetStarted, onExplorePortfolio }: HeroProps) {
+export default function Hero({ onGetStarted, onExplorePortfolio, partners = [] }: HeroProps) {
   return (
     <section className="relative pt-32 pb-24 overflow-hidden">
       {/* Background Floating Blurred Blobs - Matching logo colors beautifully */}
@@ -81,11 +83,21 @@ export default function Hero({ onGetStarted, onExplorePortfolio }: HeroProps) {
           >
             <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase mb-6">Trusted by High Growth Enterprises</p>
             <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-6 opacity-65 grayscale hover:grayscale-0 transition-all duration-500">
-              <span className="font-display font-extrabold text-lg md:text-xl text-slate-600 tracking-wide">FUTURA.INC</span>
-              <span className="font-display font-bold text-lg md:text-xl text-slate-600 tracking-wider">STYLEGRID</span>
-              <span className="font-display font-extrabold text-lg md:text-xl text-slate-600 italic">ACME.CO</span>
-              <span className="font-display font-medium text-lg md:text-xl text-slate-600">FINGLOW</span>
-              <span className="font-display font-black text-lg md:text-xl text-slate-600 tracking-widest">RELIANCE</span>
+              {partners && partners.length > 0 ? (
+                partners.map((partner) => (
+                  <span key={partner.id} className={partner.style || "font-display font-bold text-lg md:text-xl text-slate-600"}>
+                    {partner.name}
+                  </span>
+                ))
+              ) : (
+                <>
+                  <span className="font-display font-extrabold text-lg md:text-xl text-slate-600 tracking-wide">FUTURA.INC</span>
+                  <span className="font-display font-bold text-lg md:text-xl text-slate-600 tracking-wider">STYLEGRID</span>
+                  <span className="font-display font-extrabold text-lg md:text-xl text-slate-600 italic">ACME.CO</span>
+                  <span className="font-display font-medium text-lg md:text-xl text-slate-600">FINGLOW</span>
+                  <span className="font-display font-black text-lg md:text-xl text-slate-600 tracking-widest">RELIANCE</span>
+                </>
+              )}
             </div>
           </motion.div>
         </div>

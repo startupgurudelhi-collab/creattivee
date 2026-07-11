@@ -6,7 +6,7 @@ import {
   Brain, Palette, Cpu, Smartphone, Search, HeartHandshake, TrendingUp, Briefcase, Rocket, Smile
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
-import { Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings } from "./types";
+import { Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings, Partner, Benefit } from "./types";
 import Hero from "./components/Hero";
 import PortfolioGrid from "./components/PortfolioGrid";
 import BlogCMS from "./components/BlogCMS";
@@ -88,6 +88,8 @@ export default function App() {
   const [faqs, setFaqs] = useState<FAQItem[]>([]);
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [settings, setSettings] = useState<AgencySettings | null>(null);
+  const [partners, setPartners] = useState<Partner[]>([]);
+  const [benefits, setBenefits] = useState<Benefit[]>([]);
 
   // Active view states
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -110,14 +112,16 @@ export default function App() {
   // Load backend database models
   const loadCmsData = async () => {
     try {
-      const [serRes, pkgRes, portRes, blogRes, faqRes, testRes, settingsRes] = await Promise.all([
+      const [serRes, pkgRes, portRes, blogRes, faqRes, testRes, settingsRes, partnersRes, benefitsRes] = await Promise.all([
         fetch("/api/services").then(r => r.json()),
         fetch("/api/packages").then(r => r.json()),
         fetch("/api/portfolio").then(r => r.json()),
         fetch("/api/blogs").then(r => r.json()),
         fetch("/api/faqs").then(r => r.json()),
         fetch("/api/testimonials").then(r => r.json()),
-        fetch("/api/settings").then(r => r.json())
+        fetch("/api/settings").then(r => r.json()),
+        fetch("/api/partners").then(r => r.json()).catch(() => []),
+        fetch("/api/benefits").then(r => r.json()).catch(() => [])
       ]);
 
       setServices(serRes);
@@ -127,6 +131,8 @@ export default function App() {
       setFaqs(faqRes);
       setTestimonials(testRes);
       setSettings(settingsRes);
+      setPartners(partnersRes);
+      setBenefits(benefitsRes);
     } catch (e) {
       console.error("Error connecting with backend API server", e);
     }
@@ -299,6 +305,7 @@ export default function App() {
             {/* HERO BANNER SECTION */}
             <div id="hero">
               <Hero
+                partners={partners}
                 onGetStarted={() => handleScrollToId("packages")}
                 onExplorePortfolio={() => handleScrollToId("portfolio")}
               />
@@ -412,104 +419,43 @@ export default function App() {
 
                 {/* Core Benefits Grid (8 Items) */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                  {[
-                    {
-                      title: "AI-Powered Solutions",
-                      text: "We leverage the latest AI technologies to build smarter websites, web applications, and business software that automate workflows and improve productivity.",
-                      icon: Brain,
-                      bgColor: "bg-purple-50",
-                      borderColor: "border-purple-100/60",
-                      iconColor: "text-purple-600",
-                      glow: "hover:shadow-purple-100/40"
-                    },
-                    {
-                      title: "Custom Design, No Templates",
-                      text: "Every website and software is designed from scratch to match your brand identity, business goals, and user experience.",
-                      icon: Palette,
-                      bgColor: "bg-pink-50",
-                      borderColor: "border-pink-100/60",
-                      iconColor: "text-pink-600",
-                      glow: "hover:shadow-pink-100/40"
-                    },
-                    {
-                      title: "Fast, Secure & Scalable",
-                      text: "Our solutions are optimized for speed, security, SEO, and future growth, ensuring long-term performance.",
-                      icon: Zap,
-                      bgColor: "bg-yellow-50",
-                      borderColor: "border-yellow-100/60",
-                      iconColor: "text-yellow-600",
-                      glow: "hover:shadow-yellow-100/40"
-                    },
-                    {
-                      title: "Fully Responsive Experience",
-                      text: "Every project works seamlessly across desktops, tablets, and mobile devices with a flawless user experience.",
-                      icon: Smartphone,
-                      bgColor: "bg-blue-50",
-                      borderColor: "border-blue-100/60",
-                      iconColor: "text-blue-600",
-                      glow: "hover:shadow-blue-100/40"
-                    },
-                    {
-                      title: "SEO-Optimized Development",
-                      text: "We build websites with technical SEO practices, helping your business rank higher and generate organic search leads.",
-                      icon: Search,
-                      bgColor: "bg-sky-50",
-                      borderColor: "border-sky-100/60",
-                      iconColor: "text-sky-600",
-                      glow: "hover:shadow-sky-100/40"
-                    },
-                    {
-                      title: "Complete Digital Solutions",
-                      text: "From websites and ERP systems to SaaS products, web apps, and eCommerce platforms, we provide end-to-end digital services.",
-                      icon: Layers,
-                      bgColor: "bg-green-50",
-                      borderColor: "border-green-100/60",
-                      iconColor: "text-green-600",
-                      glow: "hover:shadow-green-100/40"
-                    },
-                    {
-                      title: "Dedicated Support",
-                      text: "Our relationship doesn't end after launch. We provide continuous maintenance, updates, and active technical support.",
-                      icon: HeartHandshake,
-                      bgColor: "bg-rose-50",
-                      borderColor: "border-rose-100/60",
-                      iconColor: "text-rose-600",
-                      glow: "hover:shadow-rose-100/40"
-                    },
-                    {
-                      title: "Business-Focused Approach",
-                      text: "We don't just develop software—we create digital solutions that help businesses increase efficiency and scale faster.",
-                      icon: TrendingUp,
-                      bgColor: "bg-orange-50",
-                      borderColor: "border-orange-100/60",
-                      iconColor: "text-orange-600",
-                      glow: "hover:shadow-orange-100/40"
-                    }
-                  ].map((benefit, idx) => (
-                    <motion.div
-                      key={idx}
-                      initial={{ opacity: 0, y: 20 }}
-                      whileInView={{ opacity: 1, y: 0 }}
-                      viewport={{ once: true, margin: "-50px" }}
-                      transition={{ duration: 0.5, delay: idx * 0.05 }}
-                      whileHover={{ y: -6, scale: 1.01 }}
-                      className={`p-6 rounded-3xl bg-white/70 border border-slate-100 shadow-sm backdrop-blur-md text-left flex flex-col justify-between hover:border-slate-200 hover:shadow-lg transition-all duration-300 ${benefit.glow}`}
-                    >
-                      <div className="space-y-4">
-                        <div className={`w-10 h-10 rounded-2xl ${benefit.bgColor} border ${benefit.borderColor} flex items-center justify-center shrink-0`}>
-                          <benefit.icon className={`w-5 h-5 ${benefit.iconColor}`} />
-                        </div>
-                        <div className="space-y-2">
-                          <h4 className="font-display font-extrabold text-slate-800 text-sm tracking-tight">
-                            {benefit.title}
-                          </h4>
-                          <p className="text-xs text-slate-500 font-medium leading-relaxed">
-                            {benefit.text}
-                          </p>
-                        </div>
-                      </div>
-                    </motion.div>
-                  ))}
+                  {benefits && benefits.length > 0 ? (
+                    benefits.map((benefit, idx) => {
+                      const IconMap: Record<string, React.ComponentType<any>> = {
+                        Brain, Palette, Zap, Smartphone, Search, Layers, HeartHandshake, TrendingUp, Sparkles, Laptop, ShieldCheck, Heart, User, Kanban, Lock, Globe, Rocket, Smile
+                      };
+                      const IconComponent = IconMap[benefit.icon] || Sparkles;
+                      return (
+                        <motion.div
+                          key={benefit.id}
+                          initial={{ opacity: 0, y: 20 }}
+                          whileInView={{ opacity: 1, y: 0 }}
+                          viewport={{ once: true, margin: "-50px" }}
+                          transition={{ duration: 0.5, delay: idx * 0.05 }}
+                          whileHover={{ y: -6, scale: 1.01 }}
+                          className={`p-6 rounded-3xl bg-white/70 border border-slate-100 shadow-sm backdrop-blur-md text-left flex flex-col justify-between hover:border-slate-200 hover:shadow-lg transition-all duration-300 ${benefit.glow || "hover:shadow-purple-100/40"}`}
+                        >
+                          <div className="space-y-4">
+                            <div className={`w-10 h-10 rounded-2xl ${benefit.bgColor || "bg-purple-50"} border ${benefit.borderColor || "border-purple-100/60"} flex items-center justify-center shrink-0`}>
+                              <IconComponent className={`w-5 h-5 ${benefit.iconColor || "text-purple-600"}`} />
+                            </div>
+                            <div className="space-y-2">
+                              <h4 className="font-display font-extrabold text-slate-800 text-sm tracking-tight">
+                                {benefit.title}
+                              </h4>
+                              <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                                {benefit.text}
+                              </p>
+                            </div>
+                          </div>
+                        </motion.div>
+                      );
+                    })
+                  ) : (
+                    <div className="col-span-full py-12 text-center text-xs text-slate-400 font-mono">
+                      No active dynamic benefit panels configured.
+                    </div>
+                  )}
                 </div>
 
                 {/* Animated Stats Section (6 Cards) */}

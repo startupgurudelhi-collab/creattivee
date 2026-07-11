@@ -185,3 +185,21 @@ export interface ActivityLog {
   date: string;
   user: string;
 }
+
+export interface Partner {
+  id: number;
+  name: string;
+  style: string;
+}
+
+export interface Benefit {
+  id: number;
+  title: string;
+  text: string;
+  icon: string;
+  bgColor?: string;
+  borderColor?: string;
+  iconColor?: string;
+  glow?: string;
+}
+
