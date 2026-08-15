@@ -8,8 +8,6 @@ import {
 import { Lead, Service, AgencyPackage, Proposal } from "../types";
 import { motion, AnimatePresence } from "motion/react";
 import Logo from "./Logo";
-import html2canvas from "html2canvas";
-import jsPDF from "jspdf";
 
 interface ProposalPrintableProps {
   leads: Lead[];
@@ -297,6 +295,24 @@ export default function ProposalPrintable({
 
     setExportingPdf(true);
     try {
+      // Dynamically load html2canvas and jsPDF to ensure fail-safe builds on any hosting provider
+      let html2canvasModule: any = null;
+      let jsPdfModule: any = null;
+      try {
+        html2canvasModule = await import("html2canvas");
+        jsPdfModule = await import("jspdf");
+      } catch (importErr) {
+        console.warn("Could not import html2canvas/jspdf dynamically, falling back to window.print()", importErr);
+      }
+
+      const html2canvas = html2canvasModule?.default || html2canvasModule;
+      const jsPDF = jsPdfModule?.default || jsPdfModule?.jsPDF || jsPdfModule;
+
+      if (!html2canvas || !jsPDF) {
+        window.print();
+        return;
+      }
+
       // High-resolution canvas render at 3x Retina resolution for zero blur text
       const canvas = await html2canvas(element, {
         scale: 3,
@@ -338,7 +354,6 @@ export default function ProposalPrintable({
       pdf.save(`Creattivee_Proposal_${clientNameSafe}_${new Date().toISOString().substring(0, 10)}.pdf`);
     } catch (err) {
       console.error("PDF export failed:", err);
-      alert("Direct PDF export encountered an error. Opening browser print view...");
       window.print();
     } finally {
       setExportingPdf(false);
