@@ -81,13 +81,50 @@ export default function Hero({ onGetStarted, onExplorePortfolio, partners = [] }
             transition={{ delay: 0.4 }}
             className="pt-10 border-t border-slate-100/80"
           >
-            <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase mb-6">Trusted by High Growth Enterprises</p>
-            <div className="flex flex-wrap items-center justify-center gap-x-12 gap-y-6 opacity-65 grayscale hover:grayscale-0 transition-all duration-500">
+            <p className="text-xs font-semibold text-slate-400 tracking-widest uppercase mb-6">TRUSTED PARTNER</p>
+            <div className="flex flex-wrap items-center justify-center gap-x-10 md:gap-x-12 gap-y-6 opacity-75 hover:opacity-100 transition-all duration-500">
               {partners && partners.length > 0 ? (
                 partners.map((partner) => (
-                  <span key={partner.id} className={partner.style || "font-display font-bold text-lg md:text-xl text-slate-600"}>
-                    {partner.name}
-                  </span>
+                  <div key={partner.id} className="flex items-center justify-center">
+                    {partner.logo_url ? (
+                      partner.website_url ? (
+                        <a
+                          href={partner.website_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={partner.name}
+                          className="hover:scale-105 transition-all inline-block"
+                        >
+                          <img
+                            src={partner.logo_url}
+                            alt={partner.name}
+                            className="h-8 md:h-9 max-w-[140px] md:max-w-[160px] object-contain grayscale hover:grayscale-0 transition-all duration-300"
+                          />
+                        </a>
+                      ) : (
+                        <img
+                          src={partner.logo_url}
+                          alt={partner.name}
+                          title={partner.name}
+                          className="h-8 md:h-9 max-w-[140px] md:max-w-[160px] object-contain grayscale hover:grayscale-0 transition-all duration-300"
+                        />
+                      )
+                    ) : partner.website_url ? (
+                      <a
+                        href={partner.website_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`${partner.style || "font-display font-bold text-lg md:text-xl text-slate-600"} hover:text-purple-600 transition-colors`}
+                        title={partner.name}
+                      >
+                        {partner.name}
+                      </a>
+                    ) : (
+                      <span className={partner.style || "font-display font-bold text-lg md:text-xl text-slate-600"}>
+                        {partner.name}
+                      </span>
+                    )}
+                  </div>
                 ))
               ) : (
                 <>

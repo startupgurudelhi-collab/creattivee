@@ -3,9 +3,10 @@ import {
   Users, Briefcase, FileText, Settings, Database, Plus, Edit, Trash, Upload,
   Calendar, Check, UserPlus, Clock, MessageSquare, Mail, Phone, MapPin, Tag,
   Download, Sparkles, BookOpen, LayoutGrid, Layers, HelpCircle, UserCheck, Play, Shield, X, Building2,
-  Target, Brain, Palette, Zap, Smartphone, Search, HeartHandshake, TrendingUp, Laptop, ShieldCheck, Heart, User, Kanban, Lock, Globe, Rocket, Smile
+  Target, Brain, Palette, Zap, Smartphone, Search, HeartHandshake, TrendingUp, Laptop, ShieldCheck, Heart, User, Kanban, Lock, Globe, Rocket, Smile, Eye, ArrowRight, RefreshCw, FileCheck, CheckCircle2,
+  Image as ImageIcon, Link2, ExternalLink, UploadCloud
 } from "lucide-react";
-import { Lead, Client, Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings, ActivityLog, Partner, Benefit } from "../types";
+import { Lead, Client, Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings, ActivityLog, Partner, Benefit, Proposal } from "../types";
 import ProposalPrintable from "./ProposalPrintable";
 import { motion } from "motion/react";
 import Logo from "./Logo";
@@ -28,6 +29,33 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
   const [settings, setSettings] = useState<AgencySettings | null>(null);
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+
+  // Proposal Management States
+  const [proposalViewMode, setProposalViewMode] = useState<"history" | "create">("history");
+  const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
+
+  // Manual Add Lead Modal States
+  const [showAddLeadModal, setShowAddLeadModal] = useState(false);
+  const [newLeadName, setNewLeadName] = useState("");
+  const [newLeadEmail, setNewLeadEmail] = useState("");
+  const [newLeadPhone, setNewLeadPhone] = useState("");
+  const [newLeadService, setNewLeadService] = useState("Website Designing");
+  const [newLeadMessage, setNewLeadMessage] = useState("");
+  const [newLeadStatus, setNewLeadStatus] = useState("pending");
+  const [newLeadStaff, setNewLeadStaff] = useState("Unassigned");
+  const [newLeadFollowUp, setNewLeadFollowUp] = useState("");
+
+  // Edit Lead Modal States
+  const [editingLead, setEditingLead] = useState<Lead | null>(null);
+  const [editLeadName, setEditLeadName] = useState("");
+  const [editLeadEmail, setEditLeadEmail] = useState("");
+  const [editLeadPhone, setEditLeadPhone] = useState("");
+  const [editLeadService, setEditLeadService] = useState("");
+  const [editLeadMessage, setEditLeadMessage] = useState("");
+  const [editLeadStatus, setEditLeadStatus] = useState("");
+  const [editLeadStaff, setEditLeadStaff] = useState("");
+  const [editLeadFollowUp, setEditLeadFollowUp] = useState("");
 
   // Hostinger MySQL Diagnostics & Synchronization States
   const [dbConnected, setDbConnected] = useState<boolean | null>(null);
@@ -75,7 +103,10 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [showPartnerForm, setShowPartnerForm] = useState(false);
   const [editingPartnerId, setEditingPartnerId] = useState<number | null>(null);
   const [partnerName, setPartnerName] = useState("");
+  const [partnerLogoUrl, setPartnerLogoUrl] = useState("");
+  const [partnerWebsiteUrl, setPartnerWebsiteUrl] = useState("");
   const [partnerStyle, setPartnerStyle] = useState("font-bold text-lg md:text-xl text-slate-600");
+  const [logoUploadMode, setLogoUploadMode] = useState<"file" | "url" | "text">("file");
 
   // Benefits CMS Form States
   const [benefits, setBenefits] = useState<Benefit[]>([]);
@@ -117,7 +148,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   // Fetch all core datasets from server API
   const fetchAllData = async () => {
     try {
-      const [leadsRes, clientsRes, servicesRes, packagesRes, portfolioRes, blogsRes, faqsRes, testimonialsRes, settingsRes, logsRes, partnersRes, benefitsRes] = await Promise.all([
+      const [leadsRes, clientsRes, servicesRes, packagesRes, portfolioRes, blogsRes, faqsRes, testimonialsRes, settingsRes, logsRes, partnersRes, benefitsRes, proposalsRes] = await Promise.all([
         fetch("/api/leads").then(r => r.json()),
         fetch("/api/clients").then(r => r.json()),
         fetch("/api/services").then(r => r.json()),
@@ -129,7 +160,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         fetch("/api/settings").then(r => r.json()),
         fetch("/api/activity-logs").then(r => r.json()),
         fetch("/api/partners").then(r => r.json()).catch(() => []),
-        fetch("/api/benefits").then(r => r.json()).catch(() => [])
+        fetch("/api/benefits").then(r => r.json()).catch(() => []),
+        fetch("/api/proposals").then(r => r.json()).catch(() => [])
       ]);
 
       setLeads(leadsRes);
@@ -144,6 +176,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       setActivityLogs(logsRes);
       setPartners(partnersRes);
       setBenefits(benefitsRes);
+      setProposals(proposalsRes || []);
 
       // Populate Settings inputs once
       if (settingsRes) {
@@ -255,6 +288,175 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     } catch (err) {
       console.error(err);
       setCsvImportMessage("Failed connecting server-side parser.");
+    }
+  };
+
+  // Lead CRUD & Management Helpers
+  const handleCreateManualLead = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLeadName.trim() || !newLeadEmail.trim()) {
+      alert("Please fill in client name and email.");
+      return;
+    }
+    try {
+      const res = await fetch("/api/leads", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "manual",
+          client_name: newLeadName.trim(),
+          client_email: newLeadEmail.trim(),
+          client_phone: newLeadPhone.trim(),
+          service_interested: newLeadService,
+          message: newLeadMessage.trim(),
+          status: newLeadStatus,
+          staff_assigned: newLeadStaff,
+          follow_up_date: newLeadFollowUp,
+        }),
+      });
+      if (res.ok) {
+        setShowAddLeadModal(false);
+        setNewLeadName("");
+        setNewLeadEmail("");
+        setNewLeadPhone("");
+        setNewLeadService("Website Designing");
+        setNewLeadMessage("");
+        setNewLeadStatus("pending");
+        setNewLeadStaff("Unassigned");
+        setNewLeadFollowUp("");
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error("Failed creating manual lead:", err);
+    }
+  };
+
+  const handleTriggerEditLead = (lead: Lead) => {
+    setEditingLead(lead);
+    setEditLeadName(lead.client_name || "");
+    setEditLeadEmail(lead.client_email || "");
+    setEditLeadPhone(lead.client_phone || "");
+    setEditLeadService(lead.service_interested || "Website Designing");
+    setEditLeadMessage(lead.message || "");
+    setEditLeadStatus(lead.status || "pending");
+    setEditLeadStaff(lead.staff_assigned || "Unassigned");
+    setEditLeadFollowUp(lead.follow_up_date || "");
+  };
+
+  const handleUpdateLeadDetails = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingLead) return;
+    try {
+      const res = await fetch(`/api/leads/${editingLead.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          client_name: editLeadName.trim(),
+          client_email: editLeadEmail.trim(),
+          client_phone: editLeadPhone.trim(),
+          service_interested: editLeadService,
+          message: editLeadMessage.trim(),
+          status: editLeadStatus,
+          staff_assigned: editLeadStaff,
+          follow_up_date: editLeadFollowUp,
+        }),
+      });
+      if (res.ok) {
+        setEditingLead(null);
+        fetchAllData();
+        if (selectedLead && selectedLead.id === editingLead.id) {
+          setSelectedLead(prev => prev ? {
+            ...prev,
+            client_name: editLeadName.trim(),
+            client_email: editLeadEmail.trim(),
+            client_phone: editLeadPhone.trim(),
+            service_interested: editLeadService,
+            message: editLeadMessage.trim(),
+            status: editLeadStatus as any,
+            staff_assigned: editLeadStaff,
+            follow_up_date: editLeadFollowUp,
+          } : null);
+        }
+      }
+    } catch (err) {
+      console.error("Failed updating lead:", err);
+    }
+  };
+
+  const handleDeleteLead = async (leadId: number) => {
+    if (!confirm("Are you sure you want to permanently delete this lead? This action cannot be undone.")) return;
+    try {
+      const res = await fetch(`/api/leads/${leadId}`, { method: "DELETE" });
+      if (res.ok) {
+        if (selectedLead && selectedLead.id === leadId) setSelectedLead(null);
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error("Failed deleting lead:", err);
+    }
+  };
+
+  const handleExportLeadsCsv = () => {
+    if (!leads || leads.length === 0) {
+      alert("No leads data available to export.");
+      return;
+    }
+
+    const headers = [
+      "ID",
+      "Lead Source",
+      "Client Name",
+      "Client Email",
+      "Client Phone",
+      "Service Required",
+      "Requirement / Message",
+      "Pipeline Status",
+      "Staff Assigned",
+      "Next Follow Up Date",
+      "Created Timestamp"
+    ];
+
+    const rows = leads.map(l => [
+      l.id,
+      l.type || "website",
+      `"${(l.client_name || "").replace(/"/g, '""')}"`,
+      `"${(l.client_email || "").replace(/"/g, '""')}"`,
+      `"${(l.client_phone || "").replace(/"/g, '""')}"`,
+      `"${(l.service_interested || "").replace(/"/g, '""')}"`,
+      `"${(l.message || "").replace(/"/g, '""').replace(/\r?\n/g, ' ')}"`,
+      `"${(l.status || "").replace(/"/g, '""')}"`,
+      `"${(l.staff_assigned || "").replace(/"/g, '""')}"`,
+      `"${(l.follow_up_date || "").replace(/"/g, '""')}"`,
+      `"${(l.created_at || "").replace(/"/g, '""')}"`
+    ]);
+
+    const csvContent = "\uFEFF" + [headers.join(","), ...rows.map(e => e.join(","))].join("\r\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Creattivee_Leads_Report_${new Date().toISOString().substring(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Proposal Management Helpers
+  const handleEditProposalTrigger = (prop: Proposal) => {
+    setEditingProposal(prop);
+    setActiveTab("proposals");
+    setProposalViewMode("create");
+  };
+
+  const handleDeleteProposal = async (id: number) => {
+    if (!confirm("Are you sure you want to permanently delete this proposal record?")) return;
+    try {
+      const res = await fetch(`/api/proposals/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        fetchAllData();
+      }
+    } catch (err) {
+      console.error("Failed deleting proposal:", err);
     }
   };
 
@@ -546,10 +748,24 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   };
 
   // Partners CMS CRUD
+  const handlePartnerLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") {
+        setPartnerLogoUrl(reader.result);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const handleSavePartner = async (e: React.FormEvent) => {
     e.preventDefault();
     const payload = {
-      name: partnerName,
+      name: partnerName.trim(),
+      logo_url: partnerLogoUrl.trim() || undefined,
+      website_url: partnerWebsiteUrl.trim() || undefined,
       style: partnerStyle,
     };
 
@@ -565,6 +781,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 
       if (res.ok) {
         setPartnerName("");
+        setPartnerLogoUrl("");
+        setPartnerWebsiteUrl("");
         setPartnerStyle("font-bold text-lg md:text-xl text-slate-600");
         setEditingPartnerId(null);
         setShowPartnerForm(false);
@@ -578,7 +796,10 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const handleEditPartnerTrigger = (p: Partner) => {
     setEditingPartnerId(p.id);
     setPartnerName(p.name);
-    setPartnerStyle(p.style);
+    setPartnerLogoUrl(p.logo_url || "");
+    setPartnerWebsiteUrl(p.website_url || "");
+    setPartnerStyle(p.style || "font-bold text-lg md:text-xl text-slate-600");
+    setLogoUploadMode(p.logo_url ? (p.logo_url.startsWith("data:") ? "file" : "url") : "file");
     setShowPartnerForm(true);
   };
 
@@ -708,7 +929,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
               { id: "cms-services", label: "Configure Services", icon: <Layers className="w-4 h-4" /> },
               { id: "cms-portfolio", label: "Configure Showrooms", icon: <Briefcase className="w-4 h-4" /> },
               { id: "cms-packages", label: "Configure Packages", icon: <Sparkles className="w-4 h-4" /> },
-              { id: "cms-partners", label: "Configure Partners", icon: <Building2 className="w-4 h-4" /> },
+              { id: "cms-partners", label: "Trusted Partners", icon: <Building2 className="w-4 h-4" />, count: partners.length },
               { id: "cms-benefits", label: "Configure Benefits", icon: <Target className="w-4 h-4" /> },
               { id: "settings", label: "SMTP & Sitemap", icon: <Settings className="w-4 h-4" /> }
             ].map((tab) => (
@@ -738,12 +959,12 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         {/* User Handshake Exit */}
         <div className="p-4 border-t border-slate-100 space-y-2">
           <div className="flex items-center gap-2.5 px-2 py-1.5 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-            <div className="w-7.5 h-7.5 rounded-full bg-purple-100 text-purple-600 font-display font-bold flex items-center justify-center text-[10px]">
-              AD
+            <div className="w-7.5 h-7.5 rounded-full bg-purple-100 text-purple-700 font-display font-bold flex items-center justify-center text-[10px]">
+              FA
             </div>
             <div>
-              <p className="font-bold text-slate-800">Admin Staff</p>
-              <p className="text-[9px] text-slate-400 font-mono">creattivee@gmail.com</p>
+              <p className="font-bold text-slate-800">Foujia (Admin)</p>
+              <p className="text-[9px] text-slate-400 font-mono">foujia@creattivee.com</p>
             </div>
           </div>
           <button
@@ -840,19 +1061,324 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h3 className="text-2xl font-display font-extrabold text-slate-800">Dynamic Pipeline Leads</h3>
-                <p className="text-xs text-slate-500">Track raw requirements, allocate team resources, schedule follow-ups</p>
+                <p className="text-xs text-slate-500">Track raw requirements, manual entries, allocate team resources, and export data</p>
               </div>
 
-              {/* Importer & Manual Triggers */}
-              <div className="flex items-center gap-3">
+              {/* Action Buttons: Add Lead, Export, Bulk Import */}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <button
+                  onClick={() => setShowAddLeadModal(true)}
+                  className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white text-xs font-display font-bold flex items-center gap-1.5 shadow-purple-soft cursor-pointer transition-all active:scale-95"
+                >
+                  <Plus className="w-4 h-4" /> ADD LEAD
+                </button>
+                <button
+                  onClick={handleExportLeadsCsv}
+                  className="px-3.5 py-2.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 text-xs font-display font-bold flex items-center gap-1.5 border border-emerald-200 cursor-pointer transition-colors"
+                  title="Export Leads to CSV / Excel File"
+                >
+                  <Download className="w-4 h-4" /> Export CSV / Excel
+                </button>
                 <button
                   onClick={() => setShowCsvBox(!showCsvBox)}
-                  className="px-4 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 text-xs font-display font-bold flex items-center gap-1.5 border border-purple-200 cursor-pointer"
+                  className="px-3.5 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-display font-bold flex items-center gap-1.5 border border-slate-200 cursor-pointer transition-colors"
                 >
-                  <Upload className="w-4 h-4" /> Bulk Import CSV
+                  <Upload className="w-4 h-4" /> Bulk Import
                 </button>
               </div>
             </div>
+
+            {/* ADD MANUAL LEAD MODAL */}
+            {showAddLeadModal && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-6 rounded-3xl bg-white border-2 border-purple-200 shadow-xl space-y-4"
+              >
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center font-bold">
+                      <UserPlus className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-display font-extrabold text-slate-800 text-base">Add New Lead Manually</h4>
+                      <p className="text-[11px] text-slate-400">Register new walk-in, phone, or referral client into CRM pipeline</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setShowAddLeadModal(false)}
+                    className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleCreateManualLead} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Client Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Ramesh Kumar"
+                      value={newLeadName}
+                      onChange={(e) => setNewLeadName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Client Email Address *</label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="ramesh@example.com"
+                      value={newLeadEmail}
+                      onChange={(e) => setNewLeadEmail(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Phone / WhatsApp Line</label>
+                    <input
+                      type="text"
+                      placeholder="+91 98765 43210"
+                      value={newLeadPhone}
+                      onChange={(e) => setNewLeadPhone(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Service Interested</label>
+                    <select
+                      value={newLeadService}
+                      onChange={(e) => setNewLeadService(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium bg-white"
+                    >
+                      <option value="Website Designing">Website Designing</option>
+                      <option value="Custom Software/ERP">Custom Software/ERP</option>
+                      <option value="UI/UX & Graphic Design">UI/UX & Graphic Design</option>
+                      <option value="Digital Marketing & Ads">Digital Marketing & Ads</option>
+                      <option value="SEO & Speed Optimization">SEO & Speed Optimization</option>
+                      <option value="Mobile App Development">Mobile App Development</option>
+                      <option value="Branding & Identity">Branding & Identity</option>
+                      <option value="Enterprise AI Solution">Enterprise AI Solution</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Initial Status</label>
+                    <select
+                      value={newLeadStatus}
+                      onChange={(e) => setNewLeadStatus(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium bg-white"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="proposal_sent">Proposal Sent</option>
+                      <option value="converted">Converted</option>
+                      <option value="lost">Lost</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Staff Assigned</label>
+                    <select
+                      value={newLeadStaff}
+                      onChange={(e) => setNewLeadStaff(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium bg-white"
+                    >
+                      <option value="Unassigned">Unassigned</option>
+                      <option value="Creattivee Admin">Creattivee Admin</option>
+                      <option value="Design Labs Lead">Design Labs Lead</option>
+                      <option value="Software Architect">Software Architect</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Follow-up Date</label>
+                    <input
+                      type="date"
+                      value={newLeadFollowUp}
+                      onChange={(e) => setNewLeadFollowUp(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="font-bold text-slate-600 block">Requirement Details / Notes</label>
+                    <textarea
+                      rows={2}
+                      placeholder="Brief note about the client's project goals, budget, or timeline..."
+                      value={newLeadMessage}
+                      onChange={(e) => setNewLeadMessage(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800 focus:border-purple-500 focus:outline-none font-medium resize-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 lg:col-span-3 flex items-center justify-end gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddLeadModal(false)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-display font-bold shadow-purple-soft cursor-pointer"
+                    >
+                      Save Lead to CRM
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
+
+            {/* EDIT LEAD MODAL */}
+            {editingLead && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.98 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="p-6 rounded-3xl bg-white border-2 border-blue-200 shadow-xl space-y-4"
+              >
+                <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-blue-100 text-blue-700 flex items-center justify-center font-bold">
+                      <Edit className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-display font-extrabold text-slate-800 text-base">Edit Lead #{editingLead.id}</h4>
+                      <p className="text-[11px] text-slate-400">Update client particulars, pipeline status, or assigned staff</p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setEditingLead(null)}
+                    className="p-1.5 hover:bg-slate-100 rounded-full text-slate-400 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleUpdateLeadDetails} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-xs">
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Client Full Name *</label>
+                    <input
+                      type="text"
+                      required
+                      value={editLeadName}
+                      onChange={(e) => setEditLeadName(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Client Email Address *</label>
+                    <input
+                      type="email"
+                      required
+                      value={editLeadEmail}
+                      onChange={(e) => setEditLeadEmail(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Phone / WhatsApp Line</label>
+                    <input
+                      type="text"
+                      value={editLeadPhone}
+                      onChange={(e) => setEditLeadPhone(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Service Interested</label>
+                    <select
+                      value={editLeadService}
+                      onChange={(e) => setEditLeadService(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium bg-white"
+                    >
+                      <option value="Website Designing">Website Designing</option>
+                      <option value="Custom Software/ERP">Custom Software/ERP</option>
+                      <option value="UI/UX & Graphic Design">UI/UX & Graphic Design</option>
+                      <option value="Digital Marketing & Ads">Digital Marketing & Ads</option>
+                      <option value="SEO & Speed Optimization">SEO & Speed Optimization</option>
+                      <option value="Mobile App Development">Mobile App Development</option>
+                      <option value="Branding & Identity">Branding & Identity</option>
+                      <option value="Enterprise AI Solution">Enterprise AI Solution</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Pipeline Status</label>
+                    <select
+                      value={editLeadStatus}
+                      onChange={(e) => setEditLeadStatus(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium bg-white"
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="contacted">Contacted</option>
+                      <option value="proposal_sent">Proposal Sent</option>
+                      <option value="converted">Converted</option>
+                      <option value="lost">Lost</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Staff Assigned</label>
+                    <select
+                      value={editLeadStaff}
+                      onChange={(e) => setEditLeadStaff(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium bg-white"
+                    >
+                      <option value="Unassigned">Unassigned</option>
+                      <option value="Creattivee Admin">Creattivee Admin</option>
+                      <option value="Design Labs Lead">Design Labs Lead</option>
+                      <option value="Software Architect">Software Architect</option>
+                    </select>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className="font-bold text-slate-600 block">Follow-up Date</label>
+                    <input
+                      type="date"
+                      value={editLeadFollowUp}
+                      onChange={(e) => setEditLeadFollowUp(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium"
+                    />
+                  </div>
+
+                  <div className="space-y-1 sm:col-span-2">
+                    <label className="font-bold text-slate-600 block">Requirement Details / Notes</label>
+                    <textarea
+                      rows={2}
+                      value={editLeadMessage}
+                      onChange={(e) => setEditLeadMessage(e.target.value)}
+                      className="w-full px-3.5 py-2 rounded-xl border border-slate-200 text-slate-800 focus:border-blue-500 focus:outline-none font-medium resize-none"
+                    />
+                  </div>
+
+                  <div className="sm:col-span-2 lg:col-span-3 flex items-center justify-end gap-2.5 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditingLead(null)}
+                      className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-semibold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-display font-bold shadow-sm cursor-pointer"
+                    >
+                      Update Lead Changes
+                    </button>
+                  </div>
+                </form>
+              </motion.div>
+            )}
 
             {/* CSV Import drawer container */}
             {showCsvBox && (
@@ -882,7 +1408,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   {csvImportMessage && <p className="text-xs text-purple-600 font-semibold">{csvImportMessage}</p>}
                   <button
                     type="submit"
-                    className="px-5 py-2.5 rounded-xl bg-purple-600 hover:opacity-95 text-white font-display font-bold text-xs"
+                    className="px-5 py-2.5 rounded-xl bg-purple-600 hover:opacity-95 text-white font-display font-bold text-xs cursor-pointer"
                   >
                     Commit Bulk Import
                   </button>
@@ -892,79 +1418,125 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
 
             {/* Leads Table */}
             <div className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
-                    <th className="pb-3">Client details</th>
-                    <th className="pb-3">Interested Scope</th>
-                    <th className="pb-3">Pipeline Status</th>
-                    <th className="pb-3">Staff assigned</th>
-                    <th className="pb-3 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
-                  {leads.map((lead) => (
-                    <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors">
-                      <td className="py-4 space-y-0.5">
-                        <p className="font-bold text-slate-800 text-sm">{lead.client_name}</p>
-                        <p className="text-slate-400 text-[10px] font-mono flex items-center gap-1">
-                          <Mail className="w-3 h-3 text-slate-400" /> {lead.client_email}
-                        </p>
-                        {lead.client_phone && (
-                          <p className="text-slate-400 text-[10px] font-mono flex items-center gap-1">
-                            <Phone className="w-3 h-3 text-slate-400" /> {lead.client_phone}
-                          </p>
-                        )}
-                      </td>
-                      <td className="py-4">
-                        <span className="px-2.5 py-1 rounded-lg bg-pink-50 border border-pink-100 text-[10px] font-display font-extrabold text-pink-600 uppercase tracking-wider inline-block">
-                          {lead.service_interested}
-                        </span>
-                        <p className="text-slate-400 text-[10px] mt-1 italic max-w-xs truncate">{lead.message}</p>
-                      </td>
-                      <td className="py-4">
-                        <select
-                          value={lead.status}
-                          onChange={(e) => handleUpdateLeadStatus(lead.id, e.target.value)}
-                          className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold uppercase ${
-                            lead.status === "pending" ? "bg-yellow-50 text-yellow-600 border-yellow-200" :
-                            lead.status === "contacted" ? "bg-purple-50 text-purple-600 border-purple-200" :
-                            lead.status === "proposal_sent" ? "bg-blue-50 text-blue-600 border-blue-200" :
-                            lead.status === "converted" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
-                            "bg-rose-50 text-rose-600 border-rose-200"
-                          }`}
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="contacted">Contacted</option>
-                          <option value="proposal_sent">Proposal Sent</option>
-                          <option value="converted">Converted</option>
-                          <option value="lost">Lost</option>
-                        </select>
-                      </td>
-                      <td className="py-4">
-                        <select
-                          value={lead.staff_assigned}
-                          onChange={(e) => handleAssignLeadStaff(lead.id, e.target.value)}
-                          className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-[10px] font-semibold bg-white"
-                        >
-                          <option value="Unassigned">Unassigned</option>
-                          <option value="Creattivee Admin">Creattivee Admin</option>
-                          <option value="Design Labs Lead">Design Labs Lead</option>
-                          <option value="Software Architect">Software Architect</option>
-                        </select>
-                      </td>
-                      <td className="py-4 text-right">
-                        <button
-                          onClick={() => setSelectedLead(lead)}
-                          className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-600 font-display font-semibold text-[10px] cursor-pointer"
-                        >
-                          Deep Details
-                        </button>
-                      </td>
+              <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-display font-bold text-slate-800">All Pipeline Records</span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 font-mono font-bold text-xs">
+                    {leads.length} total
+                  </span>
+                </div>
+                <div className="text-xs text-slate-400 font-medium">
+                  Showing {leads.length} inquiries & CRM leads
+                </div>
+              </div>
+
+              {leads.length === 0 ? (
+                <div className="text-center py-12 space-y-3">
+                  <Users className="w-12 h-12 text-slate-300 mx-auto" />
+                  <p className="text-sm font-semibold text-slate-500">No leads recorded yet.</p>
+                  <button
+                    onClick={() => setShowAddLeadModal(true)}
+                    className="px-4 py-2 rounded-xl bg-purple-600 text-white font-display font-bold text-xs cursor-pointer"
+                  >
+                    + ADD FIRST LEAD
+                  </button>
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+                      <th className="pb-3">Client details</th>
+                      <th className="pb-3">Interested Scope</th>
+                      <th className="pb-3">Pipeline Status</th>
+                      <th className="pb-3">Staff assigned</th>
+                      <th className="pb-3 text-right">Actions</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
+                    {leads.map((lead) => (
+                      <tr key={lead.id} className="hover:bg-slate-50/50 transition-colors">
+                        <td className="py-4 space-y-0.5">
+                          <div className="flex items-center gap-2">
+                            <p className="font-bold text-slate-800 text-sm">{lead.client_name}</p>
+                            {lead.type === "manual" && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-600 text-[9px] font-bold">Manual</span>
+                            )}
+                          </div>
+                          <p className="text-slate-400 text-[10px] font-mono flex items-center gap-1">
+                            <Mail className="w-3 h-3 text-slate-400" /> {lead.client_email}
+                          </p>
+                          {lead.client_phone && (
+                            <p className="text-slate-400 text-[10px] font-mono flex items-center gap-1">
+                              <Phone className="w-3 h-3 text-slate-400" /> {lead.client_phone}
+                            </p>
+                          )}
+                        </td>
+                        <td className="py-4">
+                          <span className="px-2.5 py-1 rounded-lg bg-pink-50 border border-pink-100 text-[10px] font-display font-extrabold text-pink-600 uppercase tracking-wider inline-block">
+                            {lead.service_interested}
+                          </span>
+                          <p className="text-slate-400 text-[10px] mt-1 italic max-w-xs truncate">{lead.message}</p>
+                        </td>
+                        <td className="py-4">
+                          <select
+                            value={lead.status}
+                            onChange={(e) => handleUpdateLeadStatus(lead.id, e.target.value)}
+                            className={`px-3 py-1.5 rounded-xl border text-[10px] font-bold uppercase cursor-pointer ${
+                              lead.status === "pending" ? "bg-yellow-50 text-yellow-600 border-yellow-200" :
+                              lead.status === "contacted" ? "bg-purple-50 text-purple-600 border-purple-200" :
+                              lead.status === "proposal_sent" ? "bg-blue-50 text-blue-600 border-blue-200" :
+                              lead.status === "converted" ? "bg-emerald-50 text-emerald-600 border-emerald-200" :
+                              "bg-rose-50 text-rose-600 border-rose-200"
+                            }`}
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="contacted">Contacted</option>
+                            <option value="proposal_sent">Proposal Sent</option>
+                            <option value="converted">Converted</option>
+                            <option value="lost">Lost</option>
+                          </select>
+                        </td>
+                        <td className="py-4">
+                          <select
+                            value={lead.staff_assigned}
+                            onChange={(e) => handleAssignLeadStaff(lead.id, e.target.value)}
+                            className="px-2.5 py-1.5 rounded-xl border border-slate-200 text-[10px] font-semibold bg-white cursor-pointer"
+                          >
+                            <option value="Unassigned">Unassigned</option>
+                            <option value="Creattivee Admin">Creattivee Admin</option>
+                            <option value="Design Labs Lead">Design Labs Lead</option>
+                            <option value="Software Architect">Software Architect</option>
+                          </select>
+                        </td>
+                        <td className="py-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleTriggerEditLead(lead)}
+                              className="p-1.5 rounded-lg border border-slate-200 hover:bg-blue-50 hover:text-blue-600 text-slate-500 cursor-pointer transition-colors"
+                              title="Edit Lead Details"
+                            >
+                              <Edit className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => handleDeleteLead(lead.id)}
+                              className="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-500 cursor-pointer transition-colors"
+                              title="Delete Lead Record"
+                            >
+                              <Trash className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => setSelectedLead(lead)}
+                              className="px-2.5 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 font-display font-semibold text-[10px] cursor-pointer"
+                            >
+                              Details
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
 
             {/* Lead detail Overlay Drawer */}
@@ -979,7 +1551,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                         <h4 className="font-display font-extrabold text-slate-800 text-lg">Lead Action Slate</h4>
                         <p className="text-[10px] text-slate-400 font-mono">Reference ID: #L-{selectedLead.id}</p>
                       </div>
-                      <button onClick={() => setSelectedLead(null)} className="p-1 hover:bg-slate-50 rounded-full text-slate-400">
+                      <button onClick={() => setSelectedLead(null)} className="p-1 hover:bg-slate-50 rounded-full text-slate-400 cursor-pointer">
                         <X className="w-5 h-5" />
                       </button>
                     </div>
@@ -998,6 +1570,26 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       <p className="p-3 rounded-2xl bg-slate-50 border border-slate-100 text-xs text-slate-600 font-medium leading-relaxed">
                         "{selectedLead.message || "No custom details added."}"
                       </p>
+                    </div>
+
+                    {/* Quick action buttons in drawer */}
+                    <div className="flex items-center gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          const l = selectedLead;
+                          setSelectedLead(null);
+                          handleTriggerEditLead(l);
+                        }}
+                        className="flex-1 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-700 font-bold text-xs flex items-center justify-center gap-1.5 border border-blue-200 cursor-pointer"
+                      >
+                        <Edit className="w-3.5 h-3.5" /> Edit Lead
+                      </button>
+                      <button
+                        onClick={() => handleDeleteLead(selectedLead.id)}
+                        className="flex-1 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 border border-rose-200 cursor-pointer"
+                      >
+                        <Trash className="w-3.5 h-3.5" /> Delete Lead
+                      </button>
                     </div>
 
                     {/* Follow-up date setting */}
@@ -1153,19 +1745,267 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
           </div>
         )}
 
-        {/* TAB 4: PROPOSAL PDF GENERATOR */}
+        {/* TAB 4: PROPOSAL PDF GENERATOR & PROPOSAL HISTORY */}
         {activeTab === "proposals" && (
           <div className="space-y-6">
-            <div className="print:hidden">
-              <h3 className="text-2xl font-display font-extrabold text-slate-800">Proposal E-Sign Studio</h3>
-              <p className="text-xs text-slate-500">Add customizable packages, set prices, draft terms, print/export native PDFs</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 print:hidden">
+              <div>
+                <h3 className="text-2xl font-display font-extrabold text-slate-800">Proposal Management & Studio</h3>
+                <p className="text-xs text-slate-500">Track all generated client proposals, view dates and values, and craft bespoke high-res PDF agreements</p>
+              </div>
+
+              {/* Toggle between Archive and Studio */}
+              <div className="flex items-center gap-2 bg-slate-100 p-1 rounded-2xl border border-slate-200">
+                <button
+                  onClick={() => {
+                    setProposalViewMode("history");
+                    setEditingProposal(null);
+                  }}
+                  className={`px-4 py-2 rounded-xl text-xs font-display font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    proposalViewMode === "history"
+                      ? "bg-white text-purple-700 shadow-sm"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <FileText className="w-4 h-4" /> Generated Proposals ({proposals.length})
+                </button>
+                <button
+                  onClick={() => setProposalViewMode("create")}
+                  className={`px-4 py-2 rounded-xl text-xs font-display font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                    proposalViewMode === "create"
+                      ? "bg-purple-600 text-white shadow-purple-soft"
+                      : "text-slate-600 hover:text-slate-900"
+                  }`}
+                >
+                  <Plus className="w-4 h-4" /> {editingProposal ? `Edit Proposal #${editingProposal.id}` : "+ Create New Proposal"}
+                </button>
+              </div>
             </div>
-            <ProposalPrintable
-              leads={leads}
-              services={services}
-              packages={packages}
-              onProposalCreated={fetchAllData}
-            />
+
+            {/* Sub-view 1: HISTORY OF GENERATED PROPOSALS */}
+            {proposalViewMode === "history" && (
+              <div className="space-y-6 print:hidden">
+                {/* Proposal Stats */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-5 rounded-3xl bg-white border border-purple-100 shadow-sm flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-purple-50 text-purple-600 flex items-center justify-center">
+                      <FileText className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Total Proposals Generated</p>
+                      <p className="text-2xl font-display font-extrabold text-slate-800">{proposals.length}</p>
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-3xl bg-white border border-emerald-100 shadow-sm flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Quoted Pipeline Value</p>
+                      <p className="text-2xl font-display font-extrabold text-slate-800">
+                        ₹{proposals.reduce((sum, p) => sum + (Number(p.price) || 0), 0).toLocaleString("en-IN")}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="p-5 rounded-3xl bg-white border border-pink-100 shadow-sm flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-2xl bg-pink-50 text-pink-600 flex items-center justify-center">
+                      <Sparkles className="w-6 h-6" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-400 font-medium">Active Pipeline Status</p>
+                      <p className="text-2xl font-display font-extrabold text-slate-800">
+                        {proposals.filter(p => p.status === "accepted").length} Signed / {proposals.length} Total
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Proposals Records Table */}
+                <div className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm overflow-x-auto">
+                  <div className="flex items-center justify-between mb-4 pb-3 border-b border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-display font-bold text-slate-800">All Generated Client Proposals</span>
+                      <span className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 font-mono font-bold text-xs">
+                        {proposals.length} records
+                      </span>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingProposal(null);
+                        setProposalViewMode("create");
+                      }}
+                      className="px-3.5 py-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-display font-bold text-xs flex items-center gap-1 shadow-purple-soft cursor-pointer"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> New Proposal
+                    </button>
+                  </div>
+
+                  {proposals.length === 0 ? (
+                    <div className="text-center py-12 space-y-3">
+                      <FileText className="w-12 h-12 text-slate-300 mx-auto" />
+                      <p className="text-sm font-semibold text-slate-500">No proposals generated yet.</p>
+                      <button
+                        onClick={() => {
+                          setEditingProposal(null);
+                          setProposalViewMode("create");
+                        }}
+                        className="px-4 py-2 rounded-xl bg-purple-600 text-white font-display font-bold text-xs cursor-pointer"
+                      >
+                        + Create Your First Proposal
+                      </button>
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-slate-100 text-slate-400 font-semibold uppercase tracking-wider">
+                          <th className="pb-3">Ref ID & Title</th>
+                          <th className="pb-3">Client Particulars</th>
+                          <th className="pb-3">Date Generated</th>
+                          <th className="pb-3">Agreed Amount (INR)</th>
+                          <th className="pb-3">Timeline</th>
+                          <th className="pb-3">Status</th>
+                          <th className="pb-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-50 font-medium text-slate-700">
+                        {proposals.map((prop) => {
+                          const lead = leads.find(l => l.id === prop.lead_id);
+                          const clientName = prop.client_name || lead?.client_name || "Custom Client";
+                          const clientEmail = prop.client_email || lead?.client_email || "N/A";
+                          const clientPhone = prop.client_phone || lead?.client_phone || "";
+                          const formattedDate = prop.created_at
+                            ? new Date(prop.created_at).toLocaleDateString("en-IN", {
+                                year: "numeric",
+                                month: "short",
+                                day: "numeric",
+                                hour: "2-digit",
+                                minute: "2-digit"
+                              })
+                            : "N/A";
+
+                          return (
+                            <tr key={prop.id} className="hover:bg-slate-50/50 transition-colors">
+                              <td className="py-4 space-y-0.5">
+                                <span className="font-mono text-[10px] text-purple-600 font-bold bg-purple-50 px-2 py-0.5 rounded">
+                                  #PROP-{prop.id}
+                                </span>
+                                <p className="font-bold text-slate-800 text-sm mt-1">{prop.title}</p>
+                              </td>
+                              <td className="py-4 space-y-0.5">
+                                <p className="font-bold text-slate-800">{clientName}</p>
+                                <p className="text-slate-400 text-[10px] font-mono flex items-center gap-1">
+                                  <Mail className="w-3 h-3 text-slate-400" /> {clientEmail}
+                                </p>
+                                {clientPhone && (
+                                  <p className="text-slate-400 text-[10px] font-mono flex items-center gap-1">
+                                    <Phone className="w-3 h-3 text-slate-400" /> {clientPhone}
+                                  </p>
+                                )}
+                              </td>
+                              <td className="py-4 font-mono text-slate-500 text-[11px]">
+                                <div className="flex items-center gap-1.5">
+                                  <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                                  <span>{formattedDate}</span>
+                                </div>
+                              </td>
+                              <td className="py-4">
+                                <span className="font-display font-extrabold text-slate-900 text-sm">
+                                  ₹{Number(prop.price || 0).toLocaleString("en-IN")}
+                                </span>
+                              </td>
+                              <td className="py-4 font-medium text-slate-600">
+                                <span className="px-2 py-0.5 rounded-md bg-slate-100 text-[10px] font-semibold text-slate-700">
+                                  {prop.timeline || "2 Weeks"}
+                                </span>
+                              </td>
+                              <td className="py-4">
+                                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold uppercase ${
+                                  prop.status === "accepted" ? "bg-emerald-50 text-emerald-700 border border-emerald-200" :
+                                  prop.status === "sent" ? "bg-blue-50 text-blue-700 border border-blue-200" :
+                                  prop.status === "declined" ? "bg-rose-50 text-rose-700 border border-rose-200" :
+                                  "bg-yellow-50 text-yellow-700 border border-yellow-200"
+                                }`}>
+                                  {prop.status || "draft"}
+                                </span>
+                              </td>
+                              <td className="py-4 text-right">
+                                <div className="flex items-center justify-end gap-1.5">
+                                  <button
+                                    onClick={() => handleEditProposalTrigger(prop)}
+                                    className="px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-display font-bold text-xs flex items-center gap-1 border border-purple-200 cursor-pointer transition-colors"
+                                    title="Edit Proposal Scope and Settings"
+                                  >
+                                    <Edit className="w-3.5 h-3.5" /> Edit Proposal
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteProposal(prop.id)}
+                                    className="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 cursor-pointer transition-colors"
+                                    title="Delete Proposal"
+                                  >
+                                    <Trash className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Sub-view 2: PROPOSAL E-SIGN STUDIO & GENERATOR */}
+            {proposalViewMode === "create" && (
+              <div className="space-y-4">
+                {editingProposal && (
+                  <div className="p-4 rounded-2xl bg-purple-50 border border-purple-200 flex items-center justify-between text-xs print:hidden">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-purple-600 text-white flex items-center justify-center font-bold">
+                        <Edit className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <p className="font-bold text-purple-900">
+                          Currently Editing Proposal #{editingProposal.id}: "{editingProposal.title}"
+                        </p>
+                        <p className="text-purple-700 text-[11px]">
+                          Client: {editingProposal.client_name || "Custom Client"} | Generated on {editingProposal.created_at ? new Date(editingProposal.created_at).toLocaleDateString("en-IN") : "Recent"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => {
+                          setEditingProposal(null);
+                          setProposalViewMode("history");
+                        }}
+                        className="px-3 py-1.5 rounded-xl bg-white border border-purple-200 text-purple-700 font-bold hover:bg-purple-100 cursor-pointer"
+                      >
+                        Back to All Proposals
+                      </button>
+                      <button
+                        onClick={() => setEditingProposal(null)}
+                        className="px-3 py-1.5 rounded-xl bg-purple-600 text-white font-bold hover:bg-purple-700 cursor-pointer"
+                      >
+                        Switch to New Proposal
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <ProposalPrintable
+                  leads={leads}
+                  services={services}
+                  packages={packages}
+                  editingProposal={editingProposal}
+                  onClearEditing={() => setEditingProposal(null)}
+                  onProposalCreated={fetchAllData}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -1297,7 +2137,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
                     />
                     <input
-                      type="text" required placeholder="Price (e.g. $1,499)" value={packagePrice} onChange={(e) => setPackagePrice(e.target.value)}
+                      type="text" required placeholder="Price (e.g. ₹29,999)" value={packagePrice} onChange={(e) => setPackagePrice(e.target.value)}
                       className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
                     />
                     <input
@@ -1555,22 +2395,56 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         {/* TAB: CONFIGURE PARTNERS (LOGOS CMS) */}
         {activeTab === "cms-partners" && (
           <div className="space-y-6 print:hidden animate-fade-in">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <h3 className="text-2xl font-display font-extrabold text-slate-800">Configure Trusted Partners</h3>
-                <p className="text-xs text-slate-500">Add, edit, or remove logo banners of high growth enterprises displayed on your homepage</p>
+                <h3 className="text-2xl font-display font-extrabold text-slate-800">Trusted Partners Management</h3>
+                <p className="text-xs text-slate-500">Upload logo graphics or customize brand typography rendered under the homepage &quot;TRUSTED PARTNER&quot; banner</p>
               </div>
               <button
                 onClick={() => {
                   setEditingPartnerId(null);
                   setPartnerName("");
+                  setPartnerLogoUrl("");
+                  setPartnerWebsiteUrl("");
                   setPartnerStyle("font-bold text-lg md:text-xl text-slate-600");
+                  setLogoUploadMode("file");
                   setShowPartnerForm(true);
                 }}
-                className="px-4 py-2.5 rounded-xl bg-purple-600 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-purple-soft"
+                className="px-4 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer shadow-purple-soft transition-all self-start sm:self-auto"
               >
-                <Plus className="w-4 h-4" /> Add Partner Logo
+                <Plus className="w-4 h-4" /> Add Trusted Partner
               </button>
+            </div>
+
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Total Partners</p>
+                  <p className="text-2xl font-display font-extrabold text-slate-800">{partners.length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold">
+                  <Building2 className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Image Logos</p>
+                  <p className="text-2xl font-display font-extrabold text-emerald-600">{partners.filter(p => !!p.logo_url).length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center font-bold">
+                  <ImageIcon className="w-5 h-5" />
+                </div>
+              </div>
+              <div className="p-4 rounded-2xl bg-white border border-slate-100 shadow-xs flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Text Brands</p>
+                  <p className="text-2xl font-display font-extrabold text-slate-600">{partners.filter(p => !p.logo_url).length}</p>
+                </div>
+                <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-600 flex items-center justify-center font-bold">
+                  <Palette className="w-5 h-5" />
+                </div>
+              </div>
             </div>
 
             {/* Partner Form Drawer */}
@@ -1578,43 +2452,255 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
               <motion.div
                 initial={{ opacity: 0, height: 0 }}
                 animate={{ opacity: 1, height: "auto" }}
-                className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4"
+                className="p-6 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-5"
               >
-                <h5 className="font-display font-bold text-slate-800 text-sm">
-                  {editingPartnerId ? "Modify Partner Logo specs" : "Add Partner Logo Specification"}
-                </h5>
-                <form onSubmit={handleSavePartner} className="space-y-3.5">
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <h5 className="font-display font-bold text-slate-800 text-sm flex items-center gap-2">
+                    <Building2 className="w-4 h-4 text-purple-600" />
+                    {editingPartnerId ? `Modify Partner (ID #${editingPartnerId})` : "Add New Trusted Partner"}
+                  </h5>
+                  <button
+                    type="button"
+                    onClick={() => setShowPartnerForm(false)}
+                    className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-50 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form onSubmit={handleSavePartner} className="space-y-5">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Partner Name / Logo Text</label>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Partner / Brand Name <span className="text-rose-500">*</span>
+                      </label>
                       <input
-                        type="text" required placeholder="e.g. FUTURA.INC" value={partnerName} onChange={(e) => setPartnerName(e.target.value)}
-                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white"
+                        type="text"
+                        required
+                        placeholder="e.g. Google, Reliance, Microsoft, Futura Inc."
+                        value={partnerName}
+                        onChange={(e) => setPartnerName(e.target.value)}
+                        className="w-full px-4 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:border-purple-500 font-medium"
                       />
                     </div>
+
                     <div className="space-y-1">
-                      <label className="text-[10px] font-bold text-slate-400 uppercase">Tailwind Custom Style Classes</label>
-                      <input
-                        type="text" placeholder="e.g. font-extrabold text-lg md:text-xl text-slate-600 tracking-wide" value={partnerStyle} onChange={(e) => setPartnerStyle(e.target.value)}
-                        className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white font-mono"
-                      />
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Partner Website Link (Optional)
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="url"
+                          placeholder="https://example.com"
+                          value={partnerWebsiteUrl}
+                          onChange={(e) => setPartnerWebsiteUrl(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:border-purple-500"
+                        />
+                        <Link2 className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                      </div>
                     </div>
                   </div>
 
-                  <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100 text-center">
-                    <span className="text-[10px] text-slate-400 font-mono block mb-2">Live Logo Preview:</span>
-                    <div className="opacity-65 hover:opacity-100 transition-opacity">
-                      <span className={partnerStyle || "font-display font-bold text-lg md:text-xl text-slate-600"}>
-                        {partnerName || "PREVIEW LOGO"}
-                      </span>
+                  {/* Logo Source Mode Selector */}
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                      Logo Asset Format
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { mode: "file", label: "Upload Image File", icon: <UploadCloud className="w-3.5 h-3.5" /> },
+                        { mode: "url", label: "Image URL Link", icon: <Globe className="w-3.5 h-3.5" /> },
+                        { mode: "text", label: "Typography Brand (No Image)", icon: <Palette className="w-3.5 h-3.5" /> }
+                      ].map((m) => (
+                        <button
+                          key={m.mode}
+                          type="button"
+                          onClick={() => setLogoUploadMode(m.mode as any)}
+                          className={`px-3.5 py-2 rounded-xl border text-xs font-semibold flex items-center gap-1.5 cursor-pointer transition-all ${
+                            logoUploadMode === m.mode
+                              ? "border-purple-600 bg-purple-50/60 text-purple-700 font-bold shadow-xs"
+                              : "border-slate-200 text-slate-600 hover:bg-slate-50"
+                          }`}
+                        >
+                          {m.icon}
+                          <span>{m.label}</span>
+                        </button>
+                      ))}
                     </div>
                   </div>
 
-                  <div className="flex gap-2">
-                    <button type="submit" className="px-5 py-2.5 bg-purple-600 text-white rounded-xl text-xs font-display font-bold cursor-pointer hover:opacity-95">
-                      Commit Logo
+                  {/* File Upload Mode */}
+                  {logoUploadMode === "file" && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Select Logo Graphic (PNG, SVG, JPG, WebP)
+                      </label>
+                      <div className="border-2 border-dashed border-slate-200 hover:border-purple-400 rounded-2xl p-6 text-center transition-colors bg-slate-50/50">
+                        {partnerLogoUrl && partnerLogoUrl.startsWith("data:") ? (
+                          <div className="space-y-3">
+                            <div className="inline-block p-4 rounded-xl bg-white border border-slate-200 shadow-xs">
+                              <img
+                                src={partnerLogoUrl}
+                                alt="Logo Preview"
+                                className="h-12 max-w-[200px] object-contain mx-auto"
+                              />
+                            </div>
+                            <div className="flex items-center justify-center gap-2">
+                              <label className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold cursor-pointer">
+                                Change File
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  onChange={handlePartnerLogoUpload}
+                                  className="hidden"
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setPartnerLogoUrl("")}
+                                className="px-3 py-1.5 rounded-lg bg-rose-50 text-rose-600 hover:bg-rose-100 text-xs font-semibold cursor-pointer"
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <label className="cursor-pointer block space-y-2">
+                            <div className="w-12 h-12 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center mx-auto">
+                              <UploadCloud className="w-6 h-6" />
+                            </div>
+                            <p className="text-xs font-semibold text-slate-700">
+                              Click to browse or drop partner logo file here
+                            </p>
+                            <p className="text-[11px] text-slate-400">
+                              Supports transparent PNG, SVG, JPG, WebP (Max ~2MB)
+                            </p>
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handlePartnerLogoUpload}
+                              className="hidden"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* URL Input Mode */}
+                  {logoUploadMode === "url" && (
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                        Direct Image URL
+                      </label>
+                      <div className="relative">
+                        <input
+                          type="url"
+                          placeholder="https://example.com/assets/logo.png"
+                          value={partnerLogoUrl}
+                          onChange={(e) => setPartnerLogoUrl(e.target.value)}
+                          className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white focus:outline-none focus:border-purple-500 font-mono"
+                        />
+                        <ImageIcon className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                      </div>
+                      {partnerLogoUrl && !partnerLogoUrl.startsWith("data:") && (
+                        <div className="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-center justify-center min-h-[60px]">
+                          <img
+                            src={partnerLogoUrl}
+                            alt="URL Preview"
+                            className="h-10 max-w-[180px] object-contain"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = "none";
+                            }}
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Typography Style Configuration (for text or fallback) */}
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center">
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                        Typography Style {partnerLogoUrl ? "(Fallback when image fails)" : "(Text Brand Styling)"}
+                      </label>
+                      <span className="text-[10px] text-slate-400 font-mono">Tailwind CSS Classes</span>
+                    </div>
+
+                    <div className="flex flex-wrap gap-1.5 pb-1">
+                      {[
+                        { label: "Bold Tracking", class: "font-bold text-lg md:text-xl text-slate-600 tracking-wider" },
+                        { label: "Extrabold Modern", class: "font-extrabold text-lg md:text-xl text-slate-600 tracking-wide" },
+                        { label: "Italic Heavy", class: "font-extrabold text-lg md:text-xl text-slate-600 italic" },
+                        { label: "Minimalist Sans", class: "font-medium text-lg md:text-xl text-slate-600 tracking-normal" },
+                        { label: "Black Ultra", class: "font-black text-lg md:text-xl text-slate-600 tracking-widest uppercase" }
+                      ].map((preset) => (
+                        <button
+                          key={preset.label}
+                          type="button"
+                          onClick={() => setPartnerStyle(preset.class)}
+                          className={`px-2.5 py-1 rounded-lg text-[10px] font-semibold border cursor-pointer ${
+                            partnerStyle === preset.class
+                              ? "bg-purple-100 text-purple-700 border-purple-300 font-bold"
+                              : "bg-slate-50 text-slate-600 border-slate-200 hover:bg-slate-100"
+                          }`}
+                        >
+                          {preset.label}
+                        </button>
+                      ))}
+                    </div>
+
+                    <input
+                      type="text"
+                      placeholder="e.g. font-extrabold text-lg md:text-xl text-slate-600 tracking-wide"
+                      value={partnerStyle}
+                      onChange={(e) => setPartnerStyle(e.target.value)}
+                      className="w-full px-4 py-2 rounded-xl border border-slate-200 text-xs text-slate-800 bg-white font-mono"
+                    />
+                  </div>
+
+                  {/* Real-time Website Appearance Preview */}
+                  <div className="p-5 rounded-2xl bg-slate-50 border border-slate-100 text-center space-y-2">
+                    <div className="flex items-center justify-between text-[10px] text-slate-400 font-mono">
+                      <span>Homepage &quot;TRUSTED PARTNER&quot; Appearance:</span>
+                      <span>Hover state enabled</span>
+                    </div>
+                    <div className="p-4 rounded-xl bg-white border border-slate-200/80 flex items-center justify-center min-h-[75px] shadow-2xs">
+                      {partnerLogoUrl ? (
+                        <div className="opacity-75 hover:opacity-100 transition-opacity flex items-center">
+                          <img
+                            src={partnerLogoUrl}
+                            alt={partnerName || "Logo"}
+                            className="h-8 md:h-9 max-w-[160px] object-contain grayscale hover:grayscale-0 transition-all duration-300"
+                          />
+                        </div>
+                      ) : (
+                        <div className="opacity-75 hover:opacity-100 transition-opacity">
+                          <span className={partnerStyle || "font-display font-bold text-lg md:text-xl text-slate-600"}>
+                            {partnerName || "BRAND PREVIEW"}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {partnerWebsiteUrl && (
+                      <p className="text-[10px] text-purple-600 font-mono flex items-center justify-center gap-1">
+                        <ExternalLink className="w-3 h-3" /> Will open: {partnerWebsiteUrl}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2 pt-2 border-t border-slate-100">
+                    <button
+                      type="submit"
+                      className="px-6 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl text-xs font-display font-bold cursor-pointer transition-all shadow-purple-soft"
+                    >
+                      {editingPartnerId ? "Update Partner" : "Save Trusted Partner"}
                     </button>
-                    <button type="button" onClick={() => setShowPartnerForm(false)} className="px-5 py-2.5 bg-slate-100 text-slate-500 rounded-xl text-xs font-semibold cursor-pointer">
+                    <button
+                      type="button"
+                      onClick={() => setShowPartnerForm(false)}
+                      className="px-5 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold cursor-pointer transition-colors"
+                    >
                       Cancel
                     </button>
                   </div>
@@ -1622,34 +2708,109 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
               </motion.div>
             )}
 
-            {/* Partners List Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {partners.map((p) => (
-                <div key={p.id} className="p-5 rounded-3xl bg-white border border-slate-100 shadow-sm space-y-4 flex flex-col justify-between">
-                  <div className="flex justify-between items-start">
-                    <span className="text-[10px] text-slate-400 font-mono">Logo ID: #{p.id}</span>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <button onClick={() => handleEditPartnerTrigger(p)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors cursor-pointer">
-                        <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button onClick={() => handleDeletePartner(p.id)} className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer">
-                        <Trash className="w-3.5 h-3.5" />
-                      </button>
+            {/* Partners List Grid Cards */}
+            {partners.length === 0 ? (
+              <div className="p-12 text-center rounded-3xl bg-white border border-slate-100 space-y-3">
+                <div className="w-12 h-12 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center mx-auto">
+                  <Building2 className="w-6 h-6" />
+                </div>
+                <h4 className="font-display font-bold text-slate-800 text-base">No Trusted Partners Configured</h4>
+                <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                  Upload your client or enterprise partner logos so they display in the high-visibility header banner.
+                </p>
+                <button
+                  onClick={() => {
+                    setEditingPartnerId(null);
+                    setPartnerName("");
+                    setPartnerLogoUrl("");
+                    setPartnerWebsiteUrl("");
+                    setPartnerStyle("font-bold text-lg md:text-xl text-slate-600");
+                    setLogoUploadMode("file");
+                    setShowPartnerForm(true);
+                  }}
+                  className="px-4 py-2 bg-purple-600 text-white rounded-xl text-xs font-bold font-display cursor-pointer hover:bg-purple-700"
+                >
+                  Add Your First Partner Logo
+                </button>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {partners.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-5 rounded-3xl bg-white border border-slate-100 shadow-xs hover:shadow-md transition-all space-y-4 flex flex-col justify-between"
+                  >
+                    <div className="flex justify-between items-start">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-slate-400 font-mono bg-slate-50 px-2 py-0.5 rounded-md border border-slate-100">
+                          #{p.id}
+                        </span>
+                        <span className={`text-[10px] px-2 py-0.5 rounded-md font-semibold ${
+                          p.logo_url ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-purple-50 text-purple-700 border border-purple-100"
+                        }`}>
+                          {p.logo_url ? "Image Logo" : "Typography"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => handleEditPartnerTrigger(p)}
+                          className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-purple-600 hover:bg-purple-50 transition-colors cursor-pointer"
+                          title="Edit Partner"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => handleDeletePartner(p.id)}
+                          className="p-1.5 rounded-lg border border-slate-100 text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+                          title="Delete Partner"
+                        >
+                          <Trash className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Logo / Brand Display Box */}
+                    <div className="p-5 rounded-2xl bg-slate-50/80 border border-slate-100 flex items-center justify-center min-h-[95px] text-center overflow-hidden">
+                      {p.logo_url ? (
+                        <img
+                          src={p.logo_url}
+                          alt={p.name}
+                          className="h-9 max-w-[160px] object-contain grayscale hover:grayscale-0 transition-all duration-300"
+                          title={p.name}
+                        />
+                      ) : (
+                        <span className={p.style || "font-display font-bold text-lg md:text-xl text-slate-600"}>
+                          {p.name}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Partner Metadata */}
+                    <div className="space-y-1 pt-1 border-t border-slate-50">
+                      <div className="flex justify-between items-center">
+                        <p className="font-display font-bold text-xs text-slate-800 truncate">{p.name}</p>
+                        {p.website_url && (
+                          <a
+                            href={p.website_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-purple-600 hover:text-purple-700 text-[11px] flex items-center gap-1 font-medium"
+                            title="Visit Website"
+                          >
+                            <ExternalLink className="w-3 h-3" /> Visit
+                          </a>
+                        )}
+                      </div>
+                      {p.logo_url && (
+                        <p className="text-[10px] text-slate-400 font-mono truncate">
+                          {p.logo_url.startsWith("data:") ? "Uploaded Base64 Graphic" : p.logo_url}
+                        </p>
+                      )}
                     </div>
                   </div>
-
-                  <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100/50 flex items-center justify-center min-h-[90px]">
-                    <span className={p.style || "font-display font-bold text-lg md:text-xl text-slate-600"}>
-                      {p.name}
-                    </span>
-                  </div>
-
-                  <div className="text-[10px] text-slate-400 font-mono leading-relaxed truncate">
-                    Style: {p.style}
-                  </div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 

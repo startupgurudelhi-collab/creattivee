@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
@@ -9,6 +10,59 @@ dotenv.config();
 
 const PORT = 3000;
 const DB_FILE_PATH = path.join(process.cwd(), "data", "db.json");
+
+// In-Memory Active Session Store for high security authentication
+interface AdminSession {
+  token: string;
+  userId: number;
+  email: string;
+  name: string;
+  role: string;
+  createdAt: number;
+  expiresAt: number;
+}
+
+const activeAdminSessions = new Map<string, AdminSession>();
+
+function createAdminSession(user: { id: number; name: string; email: string; role: string }): string {
+  const token = crypto.randomBytes(32).toString("hex");
+  const now = Date.now();
+  const expiresAt = now + (24 * 60 * 60 * 1000); // 24 hours validity
+  activeAdminSessions.set(token, {
+    token,
+    userId: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    createdAt: now,
+    expiresAt
+  });
+  return token;
+}
+
+function getAdminSession(req: express.Request): AdminSession | null {
+  const authHeader = req.headers.authorization || (req.headers["x-admin-token"] as string | undefined);
+  if (!authHeader) return null;
+
+  let token = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+  if (token.startsWith("Bearer ")) {
+    token = token.slice(7).trim();
+  } else {
+    token = token.trim();
+  }
+
+  if (!token) return null;
+
+  const session = activeAdminSessions.get(token);
+  if (!session) return null;
+
+  if (Date.now() > session.expiresAt) {
+    activeAdminSessions.delete(token);
+    return null;
+  }
+
+  return session;
+}
 
 // Hostinger MySQL connection pool (dynamic lazy initialization)
 let dbPool: mysql.Pool | null = null;
@@ -49,8 +103,8 @@ const DEFAULT_DB = {
   users: [
     {
       id: 1,
-      name: "Creattivee Admin",
-      email: "creattivee@gmail.com",
+      name: "Foujia (Admin)",
+      email: "foujia@creattivee.com",
       role: "admin",
       permissions: ["all"]
     }
@@ -74,13 +128,13 @@ const DEFAULT_DB = {
       packages: [
         {
           title: "Starter Brand",
-          price: "$499",
+          price: "₹14,999",
           features: ["Custom Layout", "Responsive Screen", "3 Inner Pages", "Contact Lead Form", "Sitemap Generation"],
           timeline: "1 Week"
         },
         {
           title: "Premium Business",
-          price: "$1,299",
+          price: "₹39,999",
           highlight: true,
           features: ["Custom Landing Page", "Unlimited Pages", "Full Dynamic CMS Panel", "Framer-like Animations", "SMTP Notification Mailer"],
           timeline: "2 Weeks"
@@ -113,13 +167,13 @@ const DEFAULT_DB = {
       packages: [
         {
           title: "MVP Blueprint",
-          price: "$2,499",
+          price: "₹79,999",
           features: ["Core ERP Module", "User Authentication", "Client Dashboard", "CSV Exporting"],
           timeline: "3 Weeks"
         },
         {
           title: "Enterprise Core",
-          price: "$4,999",
+          price: "₹1,49,999",
           highlight: true,
           features: ["Full CRM + ERP Integration", "Payment Gateways", "Automated SMTP Alerts", "AI-powered Assistant Integration"],
           timeline: "5 Weeks"
@@ -137,7 +191,7 @@ const DEFAULT_DB = {
     {
       id: 1,
       title: "Premium Growth Designing",
-      price: "$1,499",
+      price: "₹29,999",
       timeline: "14 Days",
       features: ["Responsive Design", "Vite/Next Speed Optimization", "Custom Proposal PDF Creator", "Admin CMS Panels", "Google PageSpeed 95+"],
       highlight: true,
@@ -146,7 +200,7 @@ const DEFAULT_DB = {
     {
       id: 2,
       title: "SaaS Core App Starter",
-      price: "$3,499",
+      price: "₹89,999",
       timeline: "21 Days",
       features: ["Custom MySQL Structure", "Node/Express APIs", "Robust Lead Tracker", "Admin Controls", "Postman Documentation Included"],
       highlight: false,
@@ -224,13 +278,13 @@ const DEFAULT_DB = {
         { name: "Acme Corporate Portal", status: "In Progress", timeline: "July 2026" }
       ],
       invoices: [
-        { id: "INV-2026-001", amount: "$1,299", status: "Paid", date: "2026-07-01" }
+        { id: "INV-2026-001", amount: "₹39,999", status: "Paid", date: "2026-07-01" }
       ],
       documents: [
         { title: "Service Agreement Contract", date: "2026-07-01" }
       ],
       payments: [
-        { id: "TXN-998821", amount: "$1,299", date: "2026-07-01", method: "Bank Wire" }
+        { id: "TXN-998821", amount: "₹39,999", date: "2026-07-01", method: "Bank Wire" }
       ],
       notes: "Loyal enterprise client since 2025. Prefers light clean mockups.",
       created_at: "2026-07-01"
@@ -243,7 +297,7 @@ const DEFAULT_DB = {
       lead_id: 1,
       services_selected: ["Website Designing"],
       packages_selected: ["Premium Business"],
-      price: 1299.00,
+      price: 39999.00,
       terms: "50% advance payment, remaining on successful source handover. Unlimited edits during the mockup stage.",
       timeline: "2 Weeks",
       signature_data: "Creattivee Admin Sign",
@@ -1057,23 +1111,102 @@ async function startServer() {
     }
   });
 
-  // Auth
+  // High Security Admin Authentication Endpoints
   app.post("/api/auth/login", (req, res) => {
     const { email, password } = req.body;
-    const db = readDb();
-    const user = db.users.find(u => u.email === email);
-    // Simple secure password verification simulator
-    if (user && (password === "@#Creattivee@#" || password === "Admin@Creattivee2026" || password === "admin")) {
-      logActivity("User logged in successfully", user.name);
-      return res.json({ success: true, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    if (!email || !password) {
+      return res.status(400).json({ success: false, message: "Email/Username and Password are required." });
     }
-    logActivity(`Failed login attempt for ${email}`, "Guest");
-    return res.status(401).json({ success: false, message: "Invalid credentials" });
+
+    const cleanInput = String(email).trim().toLowerCase();
+    const cleanPassword = String(password).trim();
+
+    // Strict credential verification:
+    // Username: foujia@creattivee.com (or foujia)
+    // Password: Login@2025
+    const isUserValid = (cleanInput === "foujia@creattivee.com" || cleanInput === "foujia");
+    const isPasswordValid = (cleanPassword === "Login@2025");
+
+    if (!isUserValid || !isPasswordValid) {
+      logActivity(`Blocked unauthorized login attempt for '${cleanInput}'`, "Security Firewall");
+      return res.status(401).json({
+        success: false,
+        message: "Invalid Username or Password. Access denied."
+      });
+    }
+
+    const db = readDb();
+    let user = db.users.find(u => u.email.toLowerCase() === "foujia@creattivee.com");
+    if (!user) {
+      user = {
+        id: 1,
+        name: "Foujia (Admin)",
+        email: "foujia@creattivee.com",
+        role: "admin",
+        permissions: ["all"]
+      };
+      if (!db.users || db.users.length === 0) {
+        db.users = [user];
+      } else {
+        db.users[0] = user;
+      }
+      writeDb(db);
+    }
+
+    // Generate secure randomized crypto token
+    const token = createAdminSession(user);
+    logActivity("Admin successfully authenticated and generated security session", user.name);
+
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role
+      }
+    });
   });
 
+  // Verify Active Session Token
   app.get("/api/auth/me", (req, res) => {
-    const db = readDb();
-    res.json({ user: db.users[0] });
+    const session = getAdminSession(req);
+    if (!session) {
+      return res.status(401).json({
+        success: false,
+        user: null,
+        message: "Session expired or unauthorized. Please login."
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        id: session.userId,
+        name: session.name,
+        email: session.email,
+        role: session.role
+      }
+    });
+  });
+
+  // Terminate Active Session (Logout)
+  app.post("/api/auth/logout", (req, res) => {
+    const authHeader = req.headers.authorization || (req.headers["x-admin-token"] as string | undefined);
+    if (authHeader) {
+      let token = Array.isArray(authHeader) ? authHeader[0] : authHeader;
+      if (token.startsWith("Bearer ")) {
+        token = token.slice(7).trim();
+      } else {
+        token = token.trim();
+      }
+      if (token) {
+        activeAdminSessions.delete(token);
+      }
+    }
+    logActivity("Admin session terminated via logout", "Admin");
+    res.json({ success: true, message: "Logged out successfully" });
   });
 
   // Activity Logs
@@ -1577,20 +1710,56 @@ async function startServer() {
 
   // Proposals CRUD + attractive generator
   app.get("/api/proposals", (req, res) => {
-    res.json(readDb().proposals);
+    res.json(readDb().proposals || []);
   });
 
   app.post("/api/proposals", (req, res) => {
     const db = readDb();
+    if (!db.proposals) db.proposals = [];
     const newProposal = {
       id: db.proposals.length > 0 ? Math.max(...db.proposals.map(p => p.id)) + 1 : 1,
       ...req.body,
+      status: req.body.status || "draft",
       created_at: new Date().toISOString()
     };
     db.proposals.unshift(newProposal);
     writeDb(db);
-    logActivity(`Generated formal Proposal: ${newProposal.title} for amount $${newProposal.price}`);
+    logActivity(`Generated proposal #${newProposal.id}: ${newProposal.title} for ${newProposal.client_name || 'Lead #' + newProposal.lead_id} (₹${newProposal.price})`);
     res.json({ success: true, proposal: newProposal });
+  });
+
+  app.put("/api/proposals/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = readDb();
+    if (!db.proposals) db.proposals = [];
+    const index = db.proposals.findIndex(p => p.id === id);
+    if (index !== -1) {
+      db.proposals[index] = {
+        ...db.proposals[index],
+        ...req.body,
+        updated_at: new Date().toISOString()
+      };
+      writeDb(db);
+      logActivity(`Updated proposal #${id}: ${db.proposals[index].title}`);
+      res.json({ success: true, proposal: db.proposals[index] });
+    } else {
+      res.status(404).json({ success: false, message: "Proposal not found" });
+    }
+  });
+
+  app.delete("/api/proposals/:id", (req, res) => {
+    const id = parseInt(req.params.id);
+    const db = readDb();
+    if (!db.proposals) db.proposals = [];
+    const p = db.proposals.find(item => item.id === id);
+    if (p) {
+      db.proposals = db.proposals.filter(item => item.id !== id);
+      writeDb(db);
+      logActivity(`Deleted proposal #${id}: ${p.title}`);
+      res.json({ success: true });
+    } else {
+      res.status(404).json({ success: false, message: "Proposal not found" });
+    }
   });
 
   // FAQs CRUD

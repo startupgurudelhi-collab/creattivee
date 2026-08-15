@@ -228,10 +228,10 @@ CREATE TABLE IF NOT EXISTS `settings` (
 --
 
 --
--- Admin Seeder (Password: Admin@Creattivee2026)
+-- Admin Seeder (Username: foujia@creattivee.com, Password: Login@2025)
 --
 INSERT INTO `users` (`id`, `name`, `email`, `password`, `role`, `permissions`) VALUES
-(1, 'Creattivee Admin', 'creattivee@gmail.com', '$2y$12$R.3C7hSj07Xg696BfDIn3e1gYy3h52gU8oP1.h98aO6N9nZt/K7B.', 'admin', '["all"]');
+(1, 'Foujia (Admin)', 'foujia@creattivee.com', '$2y$12$R.3C7hSj07Xg696BfDIn3e1gYy3h52gU8oP1.h98aO6N9nZt/K7B.', 'admin', '["all"]');
 
 --
 -- Services Seeders
@@ -239,12 +239,12 @@ INSERT INTO `users` (`id`, `name`, `email`, `password`, `role`, `permissions`) V
 INSERT INTO `services` (`id`, `title`, `slug`, `category`, `description`, `features`, `packages`, `faq`, `seo_title`, `seo_description`) VALUES
 (1, 'Website Designing', 'website-designing', 'Design', 'Our bespoke static and dynamic corporate website design services stand out for standard web-presence, combining seamless Framer-like micro-interactions with high PageSpeed optimization.', 
 '["Static Website", "Dynamic Website", "Corporate Website", "Landing Page", "Portfolio Website", "School Website", "Hospital Website"]',
-'[{"title":"Starter Brand","price":"$499","features":["Custom Layout","Responsive Screen","3 Inner Pages","Contact Lead Form","Sitemap Generation"],"timeline":"1 Week"},{"title":"Premium Business","price":"$1,299","highlight":true,"features":["Custom Landing Page","Unlimited Pages","Full Dynamic CMS Panel","Framer-like Animations","SMTP Notification Mailer"],"timeline":"2 Weeks"}]',
+'[{"title":"Starter Brand","price":"₹14,999","features":["Custom Layout","Responsive Screen","3 Inner Pages","Contact Lead Form","Sitemap Generation"],"timeline":"1 Week"},{"title":"Premium Business","price":"₹39,999","highlight":true,"features":["Custom Landing Page","Unlimited Pages","Full Dynamic CMS Panel","Framer-like Animations","SMTP Notification Mailer"],"timeline":"2 Weeks"}]',
 '[{"q":"Can I update static elements?","a":"Yes, with our Admin Panel custom sections, all page layouts, texts, and colors are fully manageable without coding."}]',
 'Premium Website Designing | Creattivee', 'Bespoke high-end web styling services including corporate, landing, and dynamic app design.'),
 (2, 'Software Development', 'software-development', 'Development', 'Custom enterprise software packages engineered to empower workflow efficiency across your teams.', 
 '["ERP Development", "CRM Development", "Inventory Software", "Billing Software", "HRMS", "Web Application", "SaaS Development", "AI Software", "Custom Software"]',
-'[{"title":"MVP Blueprint","price":"$2,499","features":["Core ERP Module","User Authentication","Client Dashboard","CSV Exporting"],"timeline":"3 Weeks"},{"title":"Enterprise Core","price":"$4,999","highlight":true,"features":["Full CRM + ERP Integration","Payment Gateways","Automated SMTP Alerts","AI-powered Assistant Integration"],"timeline":"5 Weeks"}]',
+'[{"title":"MVP Blueprint","price":"₹79,999","features":["Core ERP Module","User Authentication","Client Dashboard","CSV Exporting"],"timeline":"3 Weeks"},{"title":"Enterprise Core","price":"₹1,49,999","highlight":true,"features":["Full CRM + ERP Integration","Payment Gateways","Automated SMTP Alerts","AI-powered Assistant Integration"],"timeline":"5 Weeks"}]',
 '[{"q":"Do you provide maintenance?","a":"Yes, we have standard Annual Maintenance Contracts (AMC) with weekly cloud backups."}]',
 'Enterprise Software Development Services | Creattivee', 'Top tier custom web apps, HRMS, billing systems, inventory portals and SaaS architectures.');
 
@@ -252,8 +252,8 @@ INSERT INTO `services` (`id`, `title`, `slug`, `category`, `description`, `featu
 -- Packages Seeders
 --
 INSERT INTO `packages` (`id`, `title`, `price`, `timeline`, `features`, `highlight`, `button_text`) VALUES
-(1, 'Premium Growth Designing', '$1,499', '14 Days', '["Responsive Design", "Vite/Next Speed Optimization", "Custom Proposal PDF Creator", "Admin CMS Panels", "Google PageSpeed 95+"]', 1, 'Buy Now'),
-(2, 'SaaS Core App Starter', '$3,499', '21 Days', '["Custom MySQL Structure", "Node/Express APIs", "Robust Lead Tracker", "Admin Controls", "Postman Documentation Included"]', 0, 'Buy Now');
+(1, 'Premium Growth Designing', '₹29,999', '14 Days', '["Responsive Design", "Vite/Next Speed Optimization", "Custom Proposal PDF Creator", "Admin CMS Panels", "Google PageSpeed 95+"]', 1, 'Buy Now'),
+(2, 'SaaS Core App Starter', '₹89,999', '21 Days', '["Custom MySQL Structure", "Node/Express APIs", "Robust Lead Tracker", "Admin Controls", "Postman Documentation Included"]', 0, 'Buy Now');
 
 --
 -- Portfolio Seeders

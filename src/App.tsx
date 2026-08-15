@@ -141,15 +141,33 @@ export default function App() {
   useEffect(() => {
     loadCmsData();
 
-    // Check login state
-    fetch("/api/auth/me")
-      .then(r => r.json())
-      .then(d => {
-        if (d && d.user) {
-          setIsLoggedIn(true);
+    // Strict session token verification
+    const token = localStorage.getItem("admin_token");
+    if (token) {
+      fetch("/api/auth/me", {
+        headers: {
+          "Authorization": `Bearer ${token}`
         }
       })
-      .catch(() => {});
+        .then(r => {
+          if (!r.ok) throw new Error("Unauthorized");
+          return r.json();
+        })
+        .then(d => {
+          if (d && d.success && d.user) {
+            setIsLoggedIn(true);
+          } else {
+            localStorage.removeItem("admin_token");
+            setIsLoggedIn(false);
+          }
+        })
+        .catch(() => {
+          localStorage.removeItem("admin_token");
+          setIsLoggedIn(false);
+        });
+    } else {
+      setIsLoggedIn(false);
+    }
 
     // Scroll listener for back-to-top
     const handleScroll = () => {
@@ -233,6 +251,24 @@ export default function App() {
     if (el) el.scrollIntoView({ behavior: "smooth" });
   };
 
+  const handleLogout = async () => {
+    const token = localStorage.getItem("admin_token");
+    if (token) {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${token}`
+          }
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+    localStorage.removeItem("admin_token");
+    setIsLoggedIn(false);
+  };
+
   return (
     <div className="min-h-screen relative font-sans antialiased text-slate-800">
       
@@ -289,7 +325,7 @@ export default function App() {
             className="pt-24"
           >
             {isLoggedIn ? (
-              <AdminPanel onLogout={() => { setIsLoggedIn(false); }} />
+              <AdminPanel onLogout={handleLogout} />
             ) : (
               <LoginScreen onLoginSuccess={() => { setIsLoggedIn(true); loadCmsData(); }} />
             )}

@@ -148,14 +148,20 @@ export interface Client {
 export interface Proposal {
   id: number;
   lead_id?: number;
+  client_name?: string;
+  client_email?: string;
+  client_phone?: string;
   title: string;
-  services_selected: string[];
-  packages_selected: string[];
+  scope_html?: string;
+  services_selected?: string[];
+  packages_selected?: string[];
   price: number;
   terms: string;
   timeline: string;
   signature_data: string;
+  status?: "draft" | "sent" | "accepted" | "declined";
   created_at: string;
+  updated_at?: string;
 }
 
 export interface Testimonial {
@@ -189,7 +195,9 @@ export interface ActivityLog {
 export interface Partner {
   id: number;
   name: string;
-  style: string;
+  logo_url?: string;
+  website_url?: string;
+  style?: string;
 }
 
 export interface Benefit {
