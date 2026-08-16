@@ -87,7 +87,7 @@ function getDbPool(): mysql.Pool {
     const database = process.env.DB_DATABASE || process.env.DB_NAME || "";
     const port = parseInt(process.env.DB_PORT || "3306");
 
-    console.log('[DB DIAGNOSTIC]', {
+    console.log('[DB ENV AUDIT]', {
       host: process.env.DB_HOST,
       port: process.env.DB_PORT,
       database: process.env.DB_DATABASE || process.env.DB_NAME,
@@ -302,6 +302,19 @@ async function startServer() {
         error: `Could not connect to Hostinger MySQL: ${err.message}`
       });
     }
+  });
+
+  // Temporary Diagnostic Endpoint for Environment Variable Audit
+  app.get("/api/db-env", (req, res) => {
+    return res.json({
+      DB_HOST: process.env.DB_HOST || null,
+      DB_PORT: process.env.DB_PORT || null,
+      DB_DATABASE: process.env.DB_DATABASE || null,
+      DB_NAME: process.env.DB_NAME || null,
+      DB_USERNAME: process.env.DB_USERNAME || null,
+      DB_USER: process.env.DB_USER || null,
+      DB_PASSWORD_LENGTH: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
+    });
   });
 
   // Temporary Diagnostics Endpoint for Troubleshooting Hostinger Connectivity
