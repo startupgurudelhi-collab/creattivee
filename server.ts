@@ -81,12 +81,22 @@ let dbPool: mysql.Pool | null = null;
 
 function getDbPool(): mysql.Pool {
   if (!dbPool) {
+    const host = process.env.DB_HOST || "srv1826.hstgr.io";
+    const user = process.env.DB_USER || "u586646043_creattivee";
+    const password = process.env.DB_PASSWORD || "";
+    const database = process.env.DB_NAME || "u586646043_creattivee";
+    const port = parseInt(process.env.DB_PORT || "3306");
+
+    if (!user || user === "root") {
+      console.warn("[MySQL Connection Warning] DB_USER is not configured with a valid Hostinger user. Hostinger does not allow 'root' authentication.");
+    }
+
     dbPool = mysql.createPool({
-      host: process.env.DB_HOST || "localhost",
-      user: process.env.DB_USER || "root",
-      password: process.env.DB_PASSWORD || "",
-      database: process.env.DB_NAME || "creattivee",
-      port: parseInt(process.env.DB_PORT || "3306"),
+      host,
+      user,
+      password,
+      database,
+      port,
       waitForConnections: true,
       connectionLimit: 15,
       queueLimit: 0,
