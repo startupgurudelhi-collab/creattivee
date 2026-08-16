@@ -8,16 +8,18 @@ interface PortfolioGridProps {
   onOpenLead: (serviceName: string) => void;
 }
 
-export default function PortfolioGrid({ items, onOpenLead }: PortfolioGridProps) {
+export default function PortfolioGrid({ items = [], onOpenLead }: PortfolioGridProps) {
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [activeCaseStudy, setActiveCaseStudy] = useState<PortfolioItem | null>(null);
 
+  const safeItems = Array.isArray(items) ? items : [];
+
   // Extract unique categories dynamically
-  const categories = ["All", ...Array.from(new Set(items.map((item) => item.category)))];
+  const categories = ["All", ...Array.from(new Set(safeItems.map((item) => item.category)))];
 
   const filteredItems = selectedCategory === "All"
-    ? items
-    : items.filter((item) => item.category === selectedCategory);
+    ? safeItems
+    : safeItems.filter((item) => item.category === selectedCategory);
 
   return (
     <div className="space-y-12">

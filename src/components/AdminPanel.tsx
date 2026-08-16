@@ -151,37 +151,37 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const fetchAllData = async () => {
     try {
       const [leadsRes, clientsRes, servicesRes, packagesRes, portfolioRes, blogsRes, faqsRes, testimonialsRes, settingsRes, logsRes, partnersRes, benefitsRes, proposalsRes] = await Promise.all([
-        fetch("/api/leads").then(r => r.json()),
-        fetch("/api/clients").then(r => r.json()),
-        fetch("/api/services").then(r => r.json()),
-        fetch("/api/packages").then(r => r.json()),
-        fetch("/api/portfolio").then(r => r.json()),
-        fetch("/api/blogs").then(r => r.json()),
-        fetch("/api/faqs").then(r => r.json()),
-        fetch("/api/testimonials").then(r => r.json()),
-        fetch("/api/settings").then(r => r.json()),
-        fetch("/api/activity-logs").then(r => r.json()),
+        fetch("/api/leads").then(r => r.json()).catch(() => []),
+        fetch("/api/clients").then(r => r.json()).catch(() => []),
+        fetch("/api/services").then(r => r.json()).catch(() => []),
+        fetch("/api/packages").then(r => r.json()).catch(() => []),
+        fetch("/api/portfolio").then(r => r.json()).catch(() => []),
+        fetch("/api/blogs").then(r => r.json()).catch(() => []),
+        fetch("/api/faqs").then(r => r.json()).catch(() => []),
+        fetch("/api/testimonials").then(r => r.json()).catch(() => []),
+        fetch("/api/settings").then(r => r.json()).catch(() => null),
+        fetch("/api/activity-logs").then(r => r.json()).catch(() => []),
         fetch("/api/partners").then(r => r.json()).catch(() => []),
         fetch("/api/benefits").then(r => r.json()).catch(() => []),
         fetch("/api/proposals").then(r => r.json()).catch(() => [])
       ]);
 
-      setLeads(leadsRes);
-      setClients(clientsRes);
-      setServices(servicesRes);
-      setPackages(packagesRes);
-      setPortfolio(portfolioRes);
-      setBlogs(blogsRes);
-      setFaqs(faqsRes);
-      setTestimonials(testimonialsRes);
-      setSettings(settingsRes);
-      setActivityLogs(logsRes);
-      setPartners(partnersRes);
-      setBenefits(benefitsRes);
-      setProposals(proposalsRes || []);
+      if (Array.isArray(leadsRes)) setLeads(leadsRes);
+      if (Array.isArray(clientsRes)) setClients(clientsRes);
+      if (Array.isArray(servicesRes)) setServices(servicesRes);
+      if (Array.isArray(packagesRes)) setPackages(packagesRes);
+      if (Array.isArray(portfolioRes)) setPortfolio(portfolioRes);
+      if (Array.isArray(blogsRes)) setBlogs(blogsRes);
+      if (Array.isArray(faqsRes)) setFaqs(faqsRes);
+      if (Array.isArray(testimonialsRes)) setTestimonials(testimonialsRes);
+      if (settingsRes && typeof settingsRes === "object" && !settingsRes.error) setSettings(settingsRes);
+      if (Array.isArray(logsRes)) setActivityLogs(logsRes);
+      if (Array.isArray(partnersRes)) setPartners(partnersRes);
+      if (Array.isArray(benefitsRes)) setBenefits(benefitsRes);
+      if (Array.isArray(proposalsRes)) setProposals(proposalsRes);
 
       // Populate Settings inputs once
-      if (settingsRes) {
+      if (settingsRes && typeof settingsRes === "object" && !settingsRes.error) {
         setCoName(settingsRes.company_name || "");
         setCoAddress(settingsRes.company_address || "");
         setCoPhone(settingsRes.company_phone || "");

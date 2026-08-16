@@ -8,11 +8,13 @@ interface BlogCMSProps {
   onCommentAdded: () => void;
 }
 
-export default function BlogCMS({ articles, onCommentAdded }: BlogCMSProps) {
+export default function BlogCMS({ articles = [], onCommentAdded }: BlogCMSProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All");
   const [selectedTag, setSelectedTag] = useState("");
   const [activeArticle, setActiveArticle] = useState<BlogArticle | null>(null);
+
+  const safeArticles = Array.isArray(articles) ? articles : [];
 
   // Comment Form States
   const [commentName, setCommentName] = useState("");
@@ -22,13 +24,13 @@ export default function BlogCMS({ articles, onCommentAdded }: BlogCMSProps) {
   const [shared, setShared] = useState(false);
 
   // Categories & Tags list extraction
-  const categories = ["All", ...Array.from(new Set(articles.map((a) => a.category)))];
-  const allTags = Array.from(new Set(articles.flatMap((a) => a.tags || [])));
+  const categories = ["All", ...Array.from(new Set(safeArticles.map((a) => a.category)))];
+  const allTags = Array.from(new Set(safeArticles.flatMap((a) => a.tags || [])));
 
   // Filter Logic
-  const filteredArticles = articles.filter((a) => {
-    const matchesSearch = a.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      a.content.toLowerCase().includes(searchQuery.toLowerCase());
+  const filteredArticles = safeArticles.filter((a) => {
+    const matchesSearch = (a.title || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (a.content || "").toLowerCase().includes(searchQuery.toLowerCase());
     const matchesCategory = selectedCategory === "All" || a.category === selectedCategory;
     const matchesTag = !selectedTag || (a.tags && a.tags.includes(selectedTag));
     return matchesSearch && matchesCategory && matchesTag;

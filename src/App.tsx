@@ -7,6 +7,17 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "motion/react";
 import { Service, AgencyPackage, PortfolioItem, BlogArticle, FAQItem, Testimonial, AgencySettings, Partner, Benefit } from "./types";
+import {
+  DEFAULT_SERVICES,
+  DEFAULT_PACKAGES,
+  DEFAULT_PORTFOLIO,
+  DEFAULT_BLOGS,
+  DEFAULT_FAQS,
+  DEFAULT_TESTIMONIALS,
+  DEFAULT_PARTNERS,
+  DEFAULT_BENEFITS,
+  DEFAULT_SETTINGS
+} from "./data/defaultData";
 import Hero from "./components/Hero";
 import PortfolioGrid from "./components/PortfolioGrid";
 import BlogCMS from "./components/BlogCMS";
@@ -80,16 +91,16 @@ export default function App() {
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
-  // Core CMS state (synced with db.json)
-  const [services, setServices] = useState<Service[]>([]);
-  const [packages, setPackages] = useState<AgencyPackage[]>([]);
-  const [portfolio, setPortfolio] = useState<PortfolioItem[]>([]);
-  const [blogs, setBlogs] = useState<BlogArticle[]>([]);
-  const [faqs, setFaqs] = useState<FAQItem[]>([]);
-  const [testimonials, setTestimonials] = useState<Testimonial[]>([]);
-  const [settings, setSettings] = useState<AgencySettings | null>(null);
-  const [partners, setPartners] = useState<Partner[]>([]);
-  const [benefits, setBenefits] = useState<Benefit[]>([]);
+  // Core CMS state with robust fallback defaults
+  const [services, setServices] = useState<Service[]>(DEFAULT_SERVICES);
+  const [packages, setPackages] = useState<AgencyPackage[]>(DEFAULT_PACKAGES);
+  const [portfolio, setPortfolio] = useState<PortfolioItem[]>(DEFAULT_PORTFOLIO);
+  const [blogs, setBlogs] = useState<BlogArticle[]>(DEFAULT_BLOGS);
+  const [faqs, setFaqs] = useState<FAQItem[]>(DEFAULT_FAQS);
+  const [testimonials, setTestimonials] = useState<Testimonial[]>(DEFAULT_TESTIMONIALS);
+  const [settings, setSettings] = useState<AgencySettings>(DEFAULT_SETTINGS);
+  const [partners, setPartners] = useState<Partner[]>(DEFAULT_PARTNERS);
+  const [benefits, setBenefits] = useState<Benefit[]>(DEFAULT_BENEFITS);
 
   // Active view states
   const [selectedService, setSelectedService] = useState<Service | null>(null);
@@ -113,26 +124,28 @@ export default function App() {
   const loadCmsData = async () => {
     try {
       const [serRes, pkgRes, portRes, blogRes, faqRes, testRes, settingsRes, partnersRes, benefitsRes] = await Promise.all([
-        fetch("/api/services").then(r => r.json()),
-        fetch("/api/packages").then(r => r.json()),
-        fetch("/api/portfolio").then(r => r.json()),
-        fetch("/api/blogs").then(r => r.json()),
-        fetch("/api/faqs").then(r => r.json()),
-        fetch("/api/testimonials").then(r => r.json()),
-        fetch("/api/settings").then(r => r.json()),
-        fetch("/api/partners").then(r => r.json()).catch(() => []),
-        fetch("/api/benefits").then(r => r.json()).catch(() => [])
+        fetch("/api/services").then(r => r.json()).catch(() => null),
+        fetch("/api/packages").then(r => r.json()).catch(() => null),
+        fetch("/api/portfolio").then(r => r.json()).catch(() => null),
+        fetch("/api/blogs").then(r => r.json()).catch(() => null),
+        fetch("/api/faqs").then(r => r.json()).catch(() => null),
+        fetch("/api/testimonials").then(r => r.json()).catch(() => null),
+        fetch("/api/settings").then(r => r.json()).catch(() => null),
+        fetch("/api/partners").then(r => r.json()).catch(() => null),
+        fetch("/api/benefits").then(r => r.json()).catch(() => null)
       ]);
 
-      setServices(serRes);
-      setPackages(pkgRes);
-      setPortfolio(portRes);
-      setBlogs(blogRes);
-      setFaqs(faqRes);
-      setTestimonials(testRes);
-      setSettings(settingsRes);
-      setPartners(partnersRes);
-      setBenefits(benefitsRes);
+      if (Array.isArray(serRes) && serRes.length > 0) setServices(serRes);
+      if (Array.isArray(pkgRes) && pkgRes.length > 0) setPackages(pkgRes);
+      if (Array.isArray(portRes) && portRes.length > 0) setPortfolio(portRes);
+      if (Array.isArray(blogRes) && blogRes.length > 0) setBlogs(blogRes);
+      if (Array.isArray(faqRes) && faqRes.length > 0) setFaqs(faqRes);
+      if (Array.isArray(testRes) && testRes.length > 0) setTestimonials(testRes);
+      if (settingsRes && typeof settingsRes === "object" && !settingsRes.error && settingsRes.company_name) {
+        setSettings(settingsRes);
+      }
+      if (Array.isArray(partnersRes) && partnersRes.length > 0) setPartners(partnersRes);
+      if (Array.isArray(benefitsRes) && benefitsRes.length > 0) setBenefits(benefitsRes);
     } catch (e) {
       console.error("Error connecting with backend API server", e);
     }
@@ -893,7 +906,7 @@ export default function App() {
                 <div className="space-y-3">
                   <h5 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Included catalog features</h5>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                    {selectedService.features.map((feat, idx) => (
+                    {(selectedService.features || []).map((feat, idx) => (
                       <div key={idx} className="flex items-center gap-2 text-xs font-semibold text-slate-700">
                         <Check className="w-4 h-4 text-emerald-500 shrink-0" />
                         <span>{feat}</span>
@@ -903,7 +916,7 @@ export default function App() {
                 </div>
 
                 {/* Service Specific Packages */}
-                {selectedService.packages && selectedService.packages.length > 0 && (
+                {selectedService.packages && Array.isArray(selectedService.packages) && selectedService.packages.length > 0 && (
                   <div className="space-y-3">
                     <h5 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Pricing Modules</h5>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -919,14 +932,14 @@ export default function App() {
                 )}
 
                 {/* Associated FAQ */}
-                {selectedService.faq && selectedService.faq.length > 0 && (
+                {selectedService.faq && Array.isArray(selectedService.faq) && selectedService.faq.length > 0 && (
                   <div className="space-y-3">
                     <h5 className="text-xs font-bold text-slate-400 uppercase tracking-widest">Faq / Agreements</h5>
                     <div className="space-y-2">
-                      {selectedService.faq.map((item, idx) => (
+                      {selectedService.faq.map((item: any, idx) => (
                         <div key={idx} className="p-3 rounded-xl bg-slate-50/50 border border-slate-100 text-xs">
-                          <p className="font-bold text-slate-700">{item.q}</p>
-                          <p className="text-slate-500 mt-1">{item.a}</p>
+                          <p className="font-bold text-slate-700">{item.question || item.q}</p>
+                          <p className="text-slate-500 mt-1">{item.answer || item.a}</p>
                         </div>
                       ))}
                     </div>
