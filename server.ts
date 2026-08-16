@@ -6,11 +6,22 @@ import { createServer as createViteServer } from "vite";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
 import puppeteer from "puppeteer";
+import chromium from "@sparticuz/chromium";
 
 dotenv.config();
 
 const PORT = 3000;
-const DB_FILE_PATH = path.join(process.cwd(), "data", "db.json");
+
+// Helper to safely parse JSON strings or return fallback
+function safeJsonParse<T>(val: any, fallback: T): T {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === "object") return val;
+  try {
+    return JSON.parse(val);
+  } catch {
+    return fallback;
+  }
+}
 
 // In-Memory Active Session Store for high security authentication
 interface AdminSession {
@@ -65,409 +76,49 @@ function getAdminSession(req: express.Request): AdminSession | null {
   return session;
 }
 
-// Hostinger MySQL connection pool (dynamic lazy initialization)
+// Hostinger MySQL Connection Pool (Dynamic & Persistent)
 let dbPool: mysql.Pool | null = null;
 
-function checkAndInitDbPool(): mysql.Pool | null {
-  if (dbPool) return dbPool;
-  if (process.env.DB_HOST && process.env.DB_USER && process.env.DB_NAME) {
-    try {
-      dbPool = mysql.createPool({
-        host: process.env.DB_HOST,
-        user: process.env.DB_USER,
-        password: process.env.DB_PASSWORD,
-        database: process.env.DB_NAME,
-        port: parseInt(process.env.DB_PORT || "3306"),
-        waitForConnections: true,
-        connectionLimit: 10,
-        queueLimit: 0,
-        connectTimeout: 8000
-      });
-      console.log("Successfully connected with Hostinger MySQL Database Connection Pool!");
-    } catch (err) {
-      console.error("Failed to initialize Hostinger MySQL database connection pool:", err);
-    }
+function getDbPool(): mysql.Pool {
+  if (!dbPool) {
+    dbPool = mysql.createPool({
+      host: process.env.DB_HOST || "localhost",
+      user: process.env.DB_USER || "root",
+      password: process.env.DB_PASSWORD || "",
+      database: process.env.DB_NAME || "creattivee",
+      port: parseInt(process.env.DB_PORT || "3306"),
+      waitForConnections: true,
+      connectionLimit: 15,
+      queueLimit: 0,
+      connectTimeout: 10000
+    });
   }
   return dbPool;
 }
 
-// Initial attempt to bind pool
-checkAndInitDbPool();
-
-// Ensure data folder exists
-if (!fs.existsSync(path.dirname(DB_FILE_PATH))) {
-  fs.mkdirSync(path.dirname(DB_FILE_PATH), { recursive: true });
-}
-
-// Initial default state mirroring the MySQL Database Seeder exactly
-const DEFAULT_DB = {
-  users: [
-    {
-      id: 1,
-      name: "Foujia (Admin)",
-      email: "foujia@creattivee.com",
-      role: "admin",
-      permissions: ["all"]
-    }
-  ],
-  services: [
-    {
-      id: 1,
-      title: "Website Designing",
-      slug: "website-designing",
-      category: "Design",
-      description: "Our bespoke static and dynamic corporate website design services stand out for standard web-presence, combining seamless Framer-like micro-interactions with high PageSpeed optimization.",
-      features: [
-        "Static Website",
-        "Dynamic Website",
-        "Corporate Website",
-        "Landing Page",
-        "Portfolio Website",
-        "School Website",
-        "Hospital Website"
-      ],
-      packages: [
-        {
-          title: "Starter Brand",
-          price: "₹14,999",
-          features: ["Custom Layout", "Responsive Screen", "3 Inner Pages", "Contact Lead Form", "Sitemap Generation"],
-          timeline: "1 Week"
-        },
-        {
-          title: "Premium Business",
-          price: "₹39,999",
-          highlight: true,
-          features: ["Custom Landing Page", "Unlimited Pages", "Full Dynamic CMS Panel", "Framer-like Animations", "SMTP Notification Mailer"],
-          timeline: "2 Weeks"
-        }
-      ],
-      faq: [
-        { q: "Can I update static elements?", a: "Yes, with our Admin Panel custom sections, all page layouts, texts, and colors are fully manageable without coding." }
-      ],
-      seo_title: "Premium Website Designing | Creattivee",
-      seo_description: "Bespoke high-end web styling services including corporate, landing, and dynamic app design.",
-      seo_keywords: "web, design, static website, dynamic website, landing page"
-    },
-    {
-      id: 2,
-      title: "Software Development",
-      slug: "software-development",
-      category: "Development",
-      description: "Custom enterprise software packages engineered to empower workflow efficiency across your teams.",
-      features: [
-        "ERP Development",
-        "CRM Development",
-        "Inventory Software",
-        "Billing Software",
-        "HRMS",
-        "Web Application",
-        "SaaS Development",
-        "AI Software",
-        "Custom Software"
-      ],
-      packages: [
-        {
-          title: "MVP Blueprint",
-          price: "₹79,999",
-          features: ["Core ERP Module", "User Authentication", "Client Dashboard", "CSV Exporting"],
-          timeline: "3 Weeks"
-        },
-        {
-          title: "Enterprise Core",
-          price: "₹1,49,999",
-          highlight: true,
-          features: ["Full CRM + ERP Integration", "Payment Gateways", "Automated SMTP Alerts", "AI-powered Assistant Integration"],
-          timeline: "5 Weeks"
-        }
-      ],
-      faq: [
-        { q: "Do you provide maintenance?", a: "Yes, we have standard Annual Maintenance Contracts (AMC) with weekly cloud backups." }
-      ],
-      seo_title: "Enterprise Software Development Services | Creattivee",
-      seo_description: "Top tier custom web apps, HRMS, billing systems, inventory portals and SaaS architectures.",
-      seo_keywords: "erp, crm, hrms, billing software, custom web application, saas"
-    }
-  ],
-  packages: [
-    {
-      id: 1,
-      title: "Premium Growth Designing",
-      price: "₹29,999",
-      timeline: "14 Days",
-      features: ["Responsive Design", "Vite/Next Speed Optimization", "Custom Proposal PDF Creator", "Admin CMS Panels", "Google PageSpeed 95+"],
-      highlight: true,
-      button_text: "Buy Now"
-    },
-    {
-      id: 2,
-      title: "SaaS Core App Starter",
-      price: "₹89,999",
-      timeline: "21 Days",
-      features: ["Custom MySQL Structure", "Node/Express APIs", "Robust Lead Tracker", "Admin Controls", "Postman Documentation Included"],
-      highlight: false,
-      button_text: "Buy Now"
-    }
-  ],
-  portfolio: [
-    {
-      id: 1,
-      title: "Futura Bank FinTech UI",
-      slug: "futura-bank-fintech-ui",
-      category: "Fintech",
-      client: "Futura Inc",
-      technology_used: ["React", "Express", "TailwindCSS", "Chart.js"],
-      project_timeline: "3 Weeks",
-      website_link: "https://futurabank-example.com",
-      video_url: "https://www.youtube.com/embed/dQw4w9WgXcQ",
-      description: "A high-end glassmorphism-based fintech interface tailored for multi-currency dynamic client statements.",
-      case_study: "Our challenge was implementing dense fintech graphs while keeping speeds high on mobile. We utilized canvas-based charting and modular components.",
-      screenshots: [
-        "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&w=800&q=80"
-      ]
-    }
-  ],
-  blogs: [
-    {
-      id: 1,
-      title: "How Glassmorphism Drives Higher Micro-Conversions",
-      slug: "how-glassmorphism-drives-higher-conversions",
-      category: "Design",
-      tags: ["design", "ui", "glassmorphism", "framer"],
-      content: "<p>Glassmorphism isn't just an aesthetic trend; it is an incredible tool for establishing visual visual hierarchy. By utilizing <code>backdrop-filter: blur()</code> combined with delicate off-white transparent borders, we mimic standard physical overlays. This directs attention naturally without fatiguing user eyes.</p><h3>Why it works</h3><p>Human perception is attuned to spatial depth. When a call-to-action sits on a glassy overlay above drifting colored gradients, it triggers depth cues that increase interaction click rates by up to 18% over flat containers.</p>",
-      featured_image: "https://images.unsplash.com/photo-1507238691740-187a5b1d37b8?auto=format&fit=crop&w=800&q=80",
-      author: "Creattivee Design Labs",
-      reading_time: 4,
-      views: 142,
-      comments: [
-        { name: "Suresh Kumar", comment: "Outstanding insight. The depth effect definitely makes it feel premium.", date: "2026-07-10" }
-      ],
-      seo_title: "How Glassmorphism Drives Higher Micro-Conversions | Creattivee Blog",
-      seo_description: "Deep dive into visual depth perception and glassmorphism layouts."
-    }
-  ],
-  leads: [
-    {
-      id: 1,
-      type: "website",
-      client_name: "John Doe",
-      client_email: "johndoe@example.com",
-      client_phone: "+91-9876543210",
-      service_interested: "Website Designing",
-      message: "Looking for a stunning dynamic corporate landing page with glassmorphism styles.",
-      status: "pending",
-      staff_assigned: "Creattivee Admin",
-      follow_up_date: "2026-07-15",
-      notes: [
-        { text: "Lead registered via landing page form.", date: "2026-07-11 06:30", author: "System" }
-      ],
-      attachments: [],
-      timeline: [
-        { label: "Lead Created", text: "Registered from website lead form", date: "2026-07-11 06:30" }
-      ],
-      created_at: "2026-07-11T06:30:00Z"
-    }
-  ],
-  clients: [
-    {
-      id: 1,
-      name: "Acme Corp",
-      email: "billing@acme.com",
-      phone: "+91-9898989898",
-      company_name: "Acme Corporation",
-      address: "Phase II, Industrial Area, Okhla, New Delhi",
-      projects: [
-        { name: "Acme Corporate Portal", status: "In Progress", timeline: "July 2026" }
-      ],
-      invoices: [
-        { id: "INV-2026-001", amount: "₹39,999", status: "Paid", date: "2026-07-01" }
-      ],
-      documents: [
-        { title: "Service Agreement Contract", date: "2026-07-01" }
-      ],
-      payments: [
-        { id: "TXN-998821", amount: "₹39,999", date: "2026-07-01", method: "Bank Wire" }
-      ],
-      notes: "Loyal enterprise client since 2025. Prefers light clean mockups.",
-      created_at: "2026-07-01"
-    }
-  ],
-  proposals: [
-    {
-      id: 1,
-      title: "Interactive Portal Design Proposal",
-      lead_id: 1,
-      services_selected: ["Website Designing"],
-      packages_selected: ["Premium Business"],
-      price: 39999.00,
-      terms: "50% advance payment, remaining on successful source handover. Unlimited edits during the mockup stage.",
-      timeline: "2 Weeks",
-      signature_data: "Creattivee Admin Sign",
-      created_at: "2026-07-11T06:30:00Z"
-    }
-  ],
-  testimonials: [
-    {
-      id: 1,
-      author_name: "Rajesh Sharma",
-      author_role: "CEO",
-      author_company: "FinGlow Tech",
-      testimonial_text: "Creattivee completely transformed our static presentation layout into a gorgeous, ultra-fast dynamic corporate experience. Our page speed score went from 40 to 98!",
-      rating: 5,
-      author_avatar: "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?auto=format&fit=crop&w=200&q=80"
-    },
-    {
-      id: 2,
-      author_name: "Aisha Patel",
-      author_role: "Founder",
-      author_company: "StyleGrid India",
-      testimonial_text: "The lead management portal combined with the automatic Proposal generator has saved us hours of repetitive proposal building. Exceptional full-stack skill!",
-      rating: 5,
-      author_avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=200&q=80"
-    }
-  ],
-  faqs: [
-    { id: 1, question: "Will my website look premium and modern?", answer: "Absolutely. We avoid standard boxy templates, prioritizing glassmorphism layouts, soft shadows, colorful floating gradient elements, and clean negative space.", category: "Design" },
-    { id: 2, question: "Do you offer post-handover maintenance?", answer: "Yes, we structure clean Annual Maintenance Contracts (AMC) ensuring routine audits, node package updates, and continuous optimization.", category: "Services" },
-    { id: 3, question: "How does the Package Builder work?", answer: "Through the Admin Panel, you can add, configure, and alter agency packages, prices, highlights, and button text dynamically without rebuilding the bundle.", category: "Features" }
-  ],
-  settings: {
-    company_name: "Creattivee",
-    company_address: "D-561, Pocket 11, DDA Janta Flats, Jasola, New Delhi, 110025",
-    company_phone: "+91-8796380455",
-    company_email: "creattivee@gmail.com",
-    smtp_host: "smtp.gmail.com",
-    smtp_port: "587",
-    seo_default_title: "Creattivee | Custom Software & Creative Web Design Agency",
-    seo_default_description: "High performance digital agency specializing in custom software, ERPs, SEO, and bespoke React development."
-  },
-  partners: [
-    { id: 1, name: "FUTURA.INC", style: "font-extrabold text-lg md:text-xl text-slate-600 tracking-wide" },
-    { id: 2, name: "STYLEGRID", style: "font-bold text-lg md:text-xl text-slate-600 tracking-wider" },
-    { id: 3, name: "ACME.CO", style: "font-extrabold text-lg md:text-xl text-slate-600 italic" },
-    { id: 4, name: "FINGLOW", style: "font-medium text-lg md:text-xl text-slate-600" },
-    { id: 5, name: "RELIANCE", style: "font-black text-lg md:text-xl text-slate-600 tracking-widest" }
-  ],
-  activity_logs: [
-    { id: 1, event: "Database Initialized", date: "2026-07-11 06:29", user: "System" }
-  ],
-  benefits: [
-    {
-      id: 1,
-      title: "AI-Powered Solutions",
-      text: "We leverage the latest AI technologies to build smarter websites, web applications, and business software that automate workflows and improve productivity.",
-      icon: "Brain",
-      bgColor: "bg-purple-50",
-      borderColor: "border-purple-100/60",
-      iconColor: "text-purple-600",
-      glow: "hover:shadow-purple-100/40"
-    },
-    {
-      id: 2,
-      title: "Custom Design, No Templates",
-      text: "Every website and software is designed from scratch to match your brand identity, business goals, and user experience.",
-      icon: "Palette",
-      bgColor: "bg-pink-50",
-      borderColor: "border-pink-100/60",
-      iconColor: "text-pink-600",
-      glow: "hover:shadow-pink-100/40"
-    },
-    {
-      id: 3,
-      title: "Fast, Secure & Scalable",
-      text: "Our solutions are optimized for speed, security, SEO, and future growth, ensuring long-term performance.",
-      "icon": "Zap",
-      bgColor: "bg-yellow-50",
-      borderColor: "border-yellow-100/60",
-      iconColor: "text-yellow-600",
-      glow: "hover:shadow-yellow-100/40"
-    },
-    {
-      id: 4,
-      title: "Fully Responsive Experience",
-      text: "Every project works seamlessly across desktops, tablets, and mobile devices with a flawless user experience.",
-      icon: "Smartphone",
-      bgColor: "bg-blue-50",
-      borderColor: "border-blue-100/60",
-      iconColor: "text-blue-600",
-      glow: "hover:shadow-blue-100/40"
-    },
-    {
-      id: 5,
-      title: "SEO-Optimized Development",
-      text: "We build websites with technical SEO practices, helping your business rank higher and generate organic search leads.",
-      icon: "Search",
-      bgColor: "bg-sky-50",
-      borderColor: "border-sky-100/60",
-      iconColor: "text-sky-600",
-      glow: "hover:shadow-sky-100/40"
-    },
-    {
-      id: 6,
-      title: "Complete Digital Solutions",
-      text: "From websites and ERP systems to SaaS products, web apps, and eCommerce platforms, we provide end-to-end digital services.",
-      icon: "Layers",
-      bgColor: "bg-green-50",
-      borderColor: "border-green-100/60",
-      iconColor: "text-green-600",
-      glow: "hover:shadow-green-100/40"
-    },
-    {
-      id: 7,
-      title: "Dedicated Support",
-      text: "Our relationship doesn't end after launch. We provide continuous maintenance, updates, and active technical support.",
-      icon: "HeartHandshake",
-      bgColor: "bg-rose-50",
-      borderColor: "border-rose-100/60",
-      iconColor: "text-rose-600",
-      glow: "hover:shadow-rose-100/40"
-    },
-    {
-      id: 8,
-      title: "Business-Focused Approach",
-      text: "We don't just develop software—we create digital solutions that help businesses increase efficiency and scale faster.",
-      icon: "TrendingUp",
-      bgColor: "bg-orange-50",
-      borderColor: "border-orange-100/60",
-      iconColor: "text-orange-600",
-      glow: "hover:shadow-orange-100/40"
-    }
-  ]
-};
-
-// Database state accessor functions
-function readDb(): typeof DEFAULT_DB {
+// Granular, non-destructive audit log writer (Writes directly to MySQL)
+async function logActivity(event: string, user: string = "Admin") {
   try {
-    if (!fs.existsSync(DB_FILE_PATH)) {
-      fs.writeFileSync(DB_FILE_PATH, JSON.stringify(DEFAULT_DB, null, 2), "utf-8");
-      return DEFAULT_DB;
-    }
-    const data = fs.readFileSync(DB_FILE_PATH, "utf-8");
-    return JSON.parse(data);
-  } catch (error) {
-    console.error("Error reading db file, returning default", error);
-    return DEFAULT_DB;
+    const pool = getDbPool();
+    const dateStr = new Date().toISOString().replace("T", " ").substring(0, 16);
+    await pool.query(
+      "INSERT INTO activity_logs (event, date, user) VALUES (?, ?, ?)",
+      [event, dateStr, user]
+    );
+  } catch (err: any) {
+    console.warn(`[ActivityLog] Non-critical error recording activity: ${err.message}`);
   }
 }
 
-function writeDb(data: typeof DEFAULT_DB) {
-  try {
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(data, null, 2), "utf-8");
-    // Async push changes to Hostinger MySQL database in the background if connected
-    const pool = checkAndInitDbPool();
-    if (pool) {
-      syncToMySql(data).catch((e) => console.error("Async background MySQL sync error:", e));
-    }
-  } catch (error) {
-    console.error("Error writing db file", error);
-  }
-}
+// Database schema verification, table ensure, and startup count verification
+async function initDatabaseAndVerifyCounts() {
+  const pool = getDbPool();
+  console.log("=================================================");
+  console.log(" [MySQL Persistence Engine] Initializing & Verifying...");
+  console.log("=================================================");
 
-// Ensure dynamic auxiliary tables are present on Hostinger MySQL
-async function createExtraTablesIfNotExist() {
-  const pool = checkAndInitDbPool();
-  if (!pool) return;
   try {
-    // 1. partners
+    // 1. Ensure auxiliary tables exist
     await pool.query(`
       CREATE TABLE IF NOT EXISTS partners (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -476,7 +127,6 @@ async function createExtraTablesIfNotExist() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 2. activity_logs
     await pool.query(`
       CREATE TABLE IF NOT EXISTS activity_logs (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -486,7 +136,6 @@ async function createExtraTablesIfNotExist() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
 
-    // 3. benefits
     await pool.query(`
       CREATE TABLE IF NOT EXISTS benefits (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -499,545 +148,106 @@ async function createExtraTablesIfNotExist() {
         glow VARCHAR(100) DEFAULT NULL
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     `);
-    console.log("Verified auxiliary tables (partners, activity_logs, benefits) on Hostinger MySQL.");
-  } catch (err) {
-    console.error("Error verifying extra tables in MySQL:", err);
-  }
-}
 
-// Initial seeder/initializer for Hostinger MySQL
-async function initializeMySqlTables() {
-  const pool = checkAndInitDbPool();
-  if (!pool) return;
-  try {
-    const sqlPath = path.join(process.cwd(), "database.sql");
-    if (!fs.existsSync(sqlPath)) {
-      console.log("database.sql file not found, skipping table initialization");
-      return;
-    }
-    const sqlContent = fs.readFileSync(sqlPath, "utf-8");
-    
-    // Split the SQL file by semicolons, filtering out comments and empty statements
-    const statements = sqlContent
-      .split(";")
-      .map(stmt => stmt.trim())
-      .filter(stmt => {
-        if (!stmt) return false;
-        if (stmt.startsWith("--") || stmt.startsWith("/*") || stmt.startsWith("SET") || stmt.startsWith("START TRANSACTION") || stmt.startsWith("COMMIT")) return false;
-        return true;
-      });
+    // 2. Ensure proposals table has tracking and client metadata columns
+    const proposalColumns = [
+      "ALTER TABLE proposals ADD COLUMN status VARCHAR(50) DEFAULT 'draft'",
+      "ALTER TABLE proposals ADD COLUMN scope_html LONGTEXT DEFAULT NULL",
+      "ALTER TABLE proposals ADD COLUMN client_name VARCHAR(255) DEFAULT NULL",
+      "ALTER TABLE proposals ADD COLUMN client_email VARCHAR(255) DEFAULT NULL",
+      "ALTER TABLE proposals ADD COLUMN client_phone VARCHAR(50) DEFAULT NULL",
+      "ALTER TABLE proposals ADD COLUMN download_count INT DEFAULT 0",
+      "ALTER TABLE proposals ADD COLUMN last_downloaded_at VARCHAR(100) DEFAULT NULL",
+      "ALTER TABLE proposals ADD COLUMN pdf_generated_at VARCHAR(100) DEFAULT NULL",
+      "ALTER TABLE proposals ADD COLUMN pdf_version INT DEFAULT 1"
+    ];
 
-    console.log(`Executing ${statements.length} SQL statements to build Hostinger tables...`);
-    for (const stmt of statements) {
+    for (const q of proposalColumns) {
       try {
-        await pool.query(stmt);
-      } catch (stmtErr: any) {
-        console.warn("SQL statement warning:", stmtErr.message);
+        await pool.query(q);
+      } catch {
+        // Column already exists
       }
     }
-    console.log("Hostinger database tables initialized successfully!");
-  } catch (err) {
-    console.error("Failed to auto-initialize Hostinger tables:", err);
-  }
-}
 
-// Load database from Hostinger MySQL into our local cache
-async function loadFromMySql() {
-  const pool = checkAndInitDbPool();
-  if (!pool) return;
-  const dbPool = pool;
-  try {
-    console.log("Loading data from Hostinger MySQL Database...");
+    // 3. Count rows in all tables and print startup verification audit
+    const tables = [
+      "users",
+      "services",
+      "packages",
+      "portfolio",
+      "blogs",
+      "leads",
+      "clients",
+      "proposals",
+      "testimonials",
+      "faqs",
+      "settings",
+      "partners",
+      "activity_logs",
+      "benefits"
+    ];
+
+    console.log(" [MySQL Verification Audit - Current Table Counts]:");
+    let totalRecords = 0;
+    for (const tableName of tables) {
+      try {
+        const [rows]: any = await pool.query(`SELECT COUNT(*) as count FROM \`${tableName}\``);
+        const count = rows[0]?.count || 0;
+        totalRecords += Number(count);
+        console.log(`   - ${tableName.padEnd(16)} : ${count} rows`);
+      } catch (countErr: any) {
+        console.warn(`   - ${tableName.padEnd(16)} : Error reading table (${countErr.message})`);
+      }
+    }
+
+    // 4. Initial one-time seeder: only executed if entire database has 0 services & 0 users
+    const [userCountRows]: any = await pool.query("SELECT COUNT(*) as count FROM users");
+    const [serviceCountRows]: any = await pool.query("SELECT COUNT(*) as count FROM services");
     
-    // Check if tables exist. If they don't, we try to initialize them!
-    const [tables]: any = await pool.query("SHOW TABLES LIKE 'users'");
-    if (tables.length === 0) {
-      console.log("No tables found. Initializing MySQL tables from database.sql...");
-      await initializeMySqlTables();
-    }
+    if (userCountRows[0]?.count === 0 && serviceCountRows[0]?.count === 0) {
+      console.log(" [MySQL Engine] Database is completely empty. Running initial first-time database.sql initialization...");
+      const sqlPath = path.join(process.cwd(), "database.sql");
+      if (fs.existsSync(sqlPath)) {
+        const sqlContent = fs.readFileSync(sqlPath, "utf-8");
+        const statements = sqlContent
+          .split(";")
+          .map(stmt => stmt.trim())
+          .filter(stmt => {
+            if (!stmt) return false;
+            if (stmt.startsWith("--") || stmt.startsWith("/*") || stmt.startsWith("SET") || stmt.startsWith("START TRANSACTION") || stmt.startsWith("COMMIT")) return false;
+            return true;
+          });
 
-    // Verify extra tables (partners, activity_logs, benefits)
-    await createExtraTablesIfNotExist();
-
-    // Now, fetch all records and build the DB object!
-    const db: any = { ...DEFAULT_DB };
-
-    // 1. users
-    const [usersRows]: any = await pool.query("SELECT * FROM users");
-    if (usersRows.length > 0) {
-      db.users = usersRows.map((r: any) => ({
-        id: Number(r.id),
-        name: r.name,
-        email: r.email,
-        role: r.role,
-        permissions: r.permissions ? (typeof r.permissions === "string" ? JSON.parse(r.permissions) : r.permissions) : ["all"]
-      }));
-    }
-
-    // 2. services
-    const [servicesRows]: any = await dbPool.query("SELECT * FROM services");
-    if (servicesRows.length > 0) {
-      db.services = servicesRows.map((r: any) => ({
-        id: Number(r.id),
-        title: r.title,
-        slug: r.slug,
-        category: r.category,
-        description: r.description,
-        features: r.features ? (typeof r.features === "string" ? JSON.parse(r.features) : r.features) : [],
-        packages: r.packages ? (typeof r.packages === "string" ? JSON.parse(r.packages) : r.packages) : [],
-        faq: r.faq ? (typeof r.faq === "string" ? JSON.parse(r.faq) : r.faq) : [],
-        seo_title: r.seo_title || "",
-        seo_description: r.seo_description || "",
-        seo_keywords: r.seo_keywords || ""
-      }));
-    }
-
-    // 3. packages
-    const [packagesRows]: any = await dbPool.query("SELECT * FROM packages");
-    if (packagesRows.length > 0) {
-      db.packages = packagesRows.map((r: any) => ({
-        id: Number(r.id),
-        title: r.title,
-        price: r.price,
-        timeline: r.timeline,
-        features: r.features ? (typeof r.features === "string" ? JSON.parse(r.features) : r.features) : [],
-        highlight: Boolean(r.highlight),
-        button_text: r.button_text || "Buy Now"
-      }));
-    }
-
-    // 4. portfolio
-    const [portfolioRows]: any = await dbPool.query("SELECT * FROM portfolio");
-    if (portfolioRows.length > 0) {
-      db.portfolio = portfolioRows.map((r: any) => ({
-        id: Number(r.id),
-        title: r.title,
-        slug: r.slug,
-        category: r.category,
-        client: r.client,
-        technology_used: r.technology_used ? (typeof r.technology_used === "string" ? (r.technology_used.startsWith("[") ? JSON.parse(r.technology_used) : r.technology_used.split(",")) : r.technology_used) : [],
-        project_timeline: r.project_timeline,
-        website_link: r.website_link,
-        video_url: r.video_url,
-        description: r.description,
-        case_study: r.case_study,
-        screenshots: r.screenshots ? (typeof r.screenshots === "string" ? JSON.parse(r.screenshots) : r.screenshots) : []
-      }));
-    }
-
-    // 5. blogs
-    const [blogsRows]: any = await dbPool.query("SELECT * FROM blogs");
-    if (blogsRows.length > 0) {
-      db.blogs = blogsRows.map((r: any) => ({
-        id: Number(r.id),
-        title: r.title,
-        slug: r.slug,
-        category: r.category,
-        tags: r.tags ? (typeof r.tags === "string" ? (r.tags.startsWith("[") ? JSON.parse(r.tags) : r.tags.split(",")) : r.tags) : [],
-        content: r.content,
-        featured_image: r.featured_image,
-        author: r.author,
-        reading_time: Number(r.reading_time || 5),
-        views: Number(r.views || 0),
-        comments: r.comments ? (typeof r.comments === "string" ? JSON.parse(r.comments) : r.comments) : [],
-        seo_title: r.seo_title || "",
-        seo_description: r.seo_description || ""
-      }));
-    }
-
-    // 6. leads
-    const [leadsRows]: any = await dbPool.query("SELECT * FROM leads");
-    if (leadsRows.length > 0) {
-      db.leads = leadsRows.map((r: any) => ({
-        id: Number(r.id),
-        type: r.type || "website",
-        client_name: r.client_name,
-        client_email: r.client_email,
-        client_phone: r.client_phone,
-        service_interested: r.service_interested,
-        message: r.message,
-        status: r.status || "pending",
-        staff_assigned: r.staff_assigned,
-        follow_up_date: r.follow_up_date,
-        notes: r.notes ? (typeof r.notes === "string" ? JSON.parse(r.notes) : r.notes) : [],
-        attachments: r.attachments ? (typeof r.attachments === "string" ? JSON.parse(r.attachments) : r.attachments) : [],
-        timeline: r.timeline ? (typeof r.timeline === "string" ? JSON.parse(r.timeline) : r.timeline) : [],
-        created_at: r.created_at
-      }));
-    }
-
-    // 7. clients
-    const [clientsRows]: any = await dbPool.query("SELECT * FROM clients");
-    if (clientsRows.length > 0) {
-      db.clients = clientsRows.map((r: any) => ({
-        id: Number(r.id),
-        name: r.name,
-        email: r.email,
-        phone: r.phone,
-        company_name: r.company_name,
-        address: r.address,
-        projects: r.projects ? (typeof r.projects === "string" ? JSON.parse(r.projects) : r.projects) : [],
-        invoices: r.invoices ? (typeof r.invoices === "string" ? JSON.parse(r.invoices) : r.invoices) : [],
-        documents: r.documents ? (typeof r.documents === "string" ? JSON.parse(r.documents) : r.documents) : [],
-        payments: r.payments ? (typeof r.payments === "string" ? JSON.parse(r.payments) : r.payments) : [],
-        notes: r.notes || "",
-        created_at: r.created_at
-      }));
-    }
-
-    // 8. proposals
-    const [proposalsRows]: any = await dbPool.query("SELECT * FROM proposals");
-    if (proposalsRows.length > 0) {
-      db.proposals = proposalsRows.map((r: any) => ({
-        id: Number(r.id),
-        lead_id: r.lead_id ? Number(r.lead_id) : null,
-        title: r.title,
-        services_selected: r.services_selected ? (typeof r.services_selected === "string" ? JSON.parse(r.services_selected) : r.services_selected) : [],
-        packages_selected: r.packages_selected ? (typeof r.packages_selected === "string" ? JSON.parse(r.packages_selected) : r.packages_selected) : [],
-        price: Number(r.price),
-        terms: r.terms,
-        timeline: r.timeline,
-        signature_data: r.signature_data,
-        created_at: r.created_at
-      }));
-    }
-
-    // 9. testimonials
-    const [testimonialsRows]: any = await dbPool.query("SELECT * FROM testimonials");
-    if (testimonialsRows.length > 0) {
-      db.testimonials = testimonialsRows.map((r: any) => ({
-        id: Number(r.id),
-        author_name: r.author_name,
-        author_role: r.author_role,
-        author_company: r.author_company,
-        testimonial_text: r.testimonial_text,
-        rating: Number(r.rating || 5),
-        author_avatar: r.author_avatar
-      }));
-    }
-
-    // 10. faqs
-    const [faqsRows]: any = await dbPool.query("SELECT * FROM faqs");
-    if (faqsRows.length > 0) {
-      db.faqs = faqsRows.map((r: any) => ({
-        id: Number(r.id),
-        question: r.question,
-        answer: r.answer,
-        category: r.category
-      }));
-    }
-
-    // 11. settings
-    const [settingsRows]: any = await dbPool.query("SELECT * FROM settings");
-    if (settingsRows.length > 0) {
-      const settingsObj: any = {};
-      for (const row of settingsRows) {
-        settingsObj[row.meta_key] = row.meta_value;
+        for (const stmt of statements) {
+          try {
+            await pool.query(stmt);
+          } catch (stmtErr: any) {
+            console.warn("One-time SQL seed notice:", stmtErr.message);
+          }
+        }
+        console.log(" [MySQL Engine] Initial database seed successfully completed!");
       }
-      db.settings = { ...DEFAULT_DB.settings, ...settingsObj };
+    } else {
+      console.log(" [MySQL Engine] Existing database data preserved. No destructive seeding occurred.");
     }
 
-    // 12. partners
-    try {
-      const [partnersRows]: any = await dbPool.query("SELECT * FROM partners");
-      if (partnersRows.length > 0) {
-        db.partners = partnersRows.map((r: any) => ({
-          id: Number(r.id),
-          name: r.name,
-          style: r.style
-        }));
-      }
-    } catch (e) {
-      console.log("partners table not ready yet, skipping load");
-    }
-
-    // 13. activity_logs
-    try {
-      const [logsRows]: any = await dbPool.query("SELECT * FROM activity_logs");
-      if (logsRows.length > 0) {
-        db.activity_logs = logsRows.map((r: any) => ({
-          id: Number(r.id),
-          event: r.event,
-          date: r.date,
-          user: r.user
-        }));
-      }
-    } catch (e) {
-      console.log("activity_logs table not ready yet, skipping load");
-    }
-
-    // 14. benefits
-    try {
-      const [benefitsRows]: any = await dbPool.query("SELECT * FROM benefits");
-      if (benefitsRows.length > 0) {
-        db.benefits = benefitsRows.map((r: any) => ({
-          id: Number(r.id),
-          title: r.title,
-          text: r.text,
-          icon: r.icon,
-          bgColor: r.bgColor,
-          borderColor: r.borderColor,
-          iconColor: r.iconColor,
-          glow: r.glow
-        }));
-      }
-    } catch (e) {
-      console.log("benefits table not ready yet, skipping load");
-    }
-
-    // Write this fully loaded MySQL data back to local json file
-    fs.writeFileSync(DB_FILE_PATH, JSON.stringify(db, null, 2), "utf-8");
-    console.log("Successfully loaded, parsed, and cached Hostinger MySQL data locally.");
-  } catch (err) {
-    console.error("Error loading data from MySQL on startup:", err);
+    console.log("=================================================");
+    console.log(` [MySQL Engine] Persistence verified. Total active records across all tables: ${totalRecords}`);
+    console.log("=================================================");
+  } catch (err: any) {
+    console.error(" [MySQL Engine Error] Error during startup database verification:", err);
   }
-}
-
-// Background sync from local cache state to Hostinger MySQL
-async function syncToMySql(db: typeof DEFAULT_DB) {
-  const pool = checkAndInitDbPool();
-  if (!pool) return;
-  const dbPool = pool;
-  try {
-    console.log("Syncing database updates to Hostinger MySQL in the background...");
-
-    // Ensure extra tables are built
-    await createExtraTablesIfNotExist();
-
-    // 1. users
-    try {
-      await dbPool.query("DELETE FROM users");
-      for (const u of db.users) {
-        await dbPool.query(
-          "INSERT INTO users (id, name, email, password, role, permissions) VALUES (?, ?, ?, ?, ?, ?)",
-          [u.id, u.name, u.email, "$2y$12$R.3C7hSj07Xg696BfDIn3e1gYy3h52gU8oP1.h98aO6N9nZt/K7B.", u.role, JSON.stringify(u.permissions || ["all"])]
-        );
-      }
-    } catch (e) { console.error("Sync Error: users", e); }
-
-    // 2. services
-    try {
-      await dbPool.query("DELETE FROM services");
-      for (const s of db.services) {
-        await dbPool.query(
-          "INSERT INTO services (id, title, slug, category, description, features, packages, faq, seo_title, seo_description, seo_keywords) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            s.id, s.title, s.slug, s.category, s.description,
-            JSON.stringify(s.features || []),
-            JSON.stringify(s.packages || []),
-            JSON.stringify(s.faq || []),
-            s.seo_title || "", s.seo_description || "", s.seo_keywords || ""
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: services", e); }
-
-    // 3. packages
-    try {
-      await dbPool.query("DELETE FROM packages");
-      for (const p of db.packages) {
-        await dbPool.query(
-          "INSERT INTO packages (id, title, price, timeline, features, highlight, button_text) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [
-            p.id, p.title, p.price, p.timeline || "14 Days",
-            JSON.stringify(p.features || []),
-            p.highlight ? 1 : 0, p.button_text || "Buy Now"
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: packages", e); }
-
-    // 4. portfolio
-    try {
-      await dbPool.query("DELETE FROM portfolio");
-      for (const p of db.portfolio) {
-        await dbPool.query(
-          "INSERT INTO portfolio (id, title, slug, category, client, technology_used, project_timeline, website_link, video_url, description, case_study, screenshots) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            p.id, p.title, p.slug, p.category, p.client || "",
-            JSON.stringify(p.technology_used || []),
-            p.project_timeline || "", p.website_link || "", p.video_url || "",
-            p.description, p.case_study || "",
-            JSON.stringify(p.screenshots || [])
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: portfolio", e); }
-
-    // 5. blogs
-    try {
-      await dbPool.query("DELETE FROM blogs");
-      for (const b of db.blogs) {
-        await dbPool.query(
-          "INSERT INTO blogs (id, title, slug, category, tags, content, featured_image, author, reading_time, views, comments, seo_title, seo_description) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            b.id, b.title, b.slug, b.category,
-            JSON.stringify(b.tags || []),
-            b.content, b.featured_image || "", b.author,
-            b.reading_time || 5, b.views || 0,
-            JSON.stringify(b.comments || []),
-            b.seo_title || "", b.seo_description || ""
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: blogs", e); }
-
-    // 6. leads
-    try {
-      await dbPool.query("DELETE FROM leads");
-      for (const l of db.leads) {
-        await dbPool.query(
-          "INSERT INTO leads (id, type, client_name, client_email, client_phone, service_interested, message, status, staff_assigned, follow_up_date, notes, attachments, timeline) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            l.id, l.type || "website", l.client_name, l.client_email, l.client_phone || "",
-            l.service_interested || "", l.message || "", l.status || "pending",
-            l.staff_assigned || "", l.follow_up_date || null,
-            JSON.stringify(l.notes || []),
-            JSON.stringify(l.attachments || []),
-            JSON.stringify(l.timeline || [])
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: leads", e); }
-
-    // 7. clients
-    try {
-      await dbPool.query("DELETE FROM clients");
-      for (const c of db.clients) {
-        await dbPool.query(
-          "INSERT INTO clients (id, name, email, phone, company_name, address, projects, invoices, documents, payments, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            c.id, c.name, c.email, c.phone || "", c.company_name || "", c.address || "",
-            JSON.stringify(c.projects || []),
-            JSON.stringify(c.invoices || []),
-            JSON.stringify(c.documents || []),
-            JSON.stringify(c.payments || []),
-            c.notes || ""
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: clients", e); }
-
-    // 8. proposals
-    try {
-      await dbPool.query("DELETE FROM proposals");
-      for (const p of db.proposals) {
-        await dbPool.query(
-          "INSERT INTO proposals (id, lead_id, title, services_selected, packages_selected, price, terms, timeline, signature_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [
-            p.id, p.lead_id, p.title,
-            JSON.stringify(p.services_selected || []),
-            JSON.stringify(p.packages_selected || []),
-            p.price, p.terms || "", p.timeline || "", p.signature_data || ""
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: proposals", e); }
-
-    // 9. testimonials
-    try {
-      await dbPool.query("DELETE FROM testimonials");
-      for (const t of db.testimonials) {
-        await dbPool.query(
-          "INSERT INTO testimonials (id, author_name, author_role, author_company, testimonial_text, rating, author_avatar) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [
-            t.id, t.author_name, t.author_role, t.author_company || "", t.testimonial_text, t.rating || 5, t.author_avatar || ""
-          ]
-        );
-      }
-    } catch (e) { console.error("Sync Error: testimonials", e); }
-
-    // 10. faqs
-    try {
-      await dbPool.query("DELETE FROM faqs");
-      for (const f of db.faqs) {
-        await dbPool.query(
-          "INSERT INTO faqs (id, question, answer, category) VALUES (?, ?, ?, ?)",
-          [f.id, f.question, f.answer, f.category || "General"]
-        );
-      }
-    } catch (e) { console.error("Sync Error: faqs", e); }
-
-    // 11. settings
-    try {
-      await dbPool.query("DELETE FROM settings");
-      for (const [key, val] of Object.entries(db.settings)) {
-        await dbPool.query(
-          "INSERT INTO settings (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = ?",
-          [key, String(val), String(val)]
-        );
-      }
-    } catch (e) { console.error("Sync Error: settings", e); }
-
-    // 12. partners
-    try {
-      await dbPool.query("DELETE FROM partners");
-      for (const p of db.partners) {
-        await dbPool.query(
-          "INSERT INTO partners (id, name, style) VALUES (?, ?, ?)",
-          [p.id, p.name, p.style]
-        );
-      }
-    } catch (e) { console.error("Sync Error: partners", e); }
-
-    // 13. activity_logs
-    try {
-      await dbPool.query("DELETE FROM activity_logs");
-      for (const l of db.activity_logs) {
-        await dbPool.query(
-          "INSERT INTO activity_logs (id, event, date, user) VALUES (?, ?, ?, ?)",
-          [l.id, l.event, l.date, l.user]
-        );
-      }
-    } catch (e) { console.error("Sync Error: activity_logs", e); }
-
-    // 14. benefits
-    try {
-      await dbPool.query("DELETE FROM benefits");
-      for (const b of db.benefits) {
-        await dbPool.query(
-          "INSERT INTO benefits (id, title, text, icon, bgColor, borderColor, iconColor, glow) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-          [b.id, b.title, b.text, b.icon, b.bgColor, b.borderColor, b.iconColor, b.glow]
-        );
-      }
-    } catch (e) { console.error("Sync Error: benefits", e); }
-
-    console.log("Hostinger MySQL database tables synced successfully.");
-  } catch (err) {
-    console.error("Failed to sync state to MySQL database:", err);
-  }
-}
-
-// Log actions helper
-function logActivity(event: string, user: string = "Admin") {
-  const db = readDb();
-  const newLog = {
-    id: db.activity_logs ? db.activity_logs.length + 1 : 1,
-    event,
-    date: new Date().toISOString().replace("T", " ").substring(0, 16),
-    user
-  };
-  if (!db.activity_logs) {
-    db.activity_logs = [];
-  }
-  db.activity_logs.unshift(newLog);
-  writeDb(db);
 }
 
 async function startServer() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: "50mb" }));
 
-  // Load initial database state from Hostinger MySQL if configured
-  if (checkAndInitDbPool()) {
-    try {
-      await loadFromMySql();
-    } catch (err) {
-      console.error("Failed to load initial data from Hostinger MySQL on boot:", err);
-    }
-  }
+  // Initialize and verify database tables
+  await initDatabaseAndVerifyCounts();
 
-  // Security headers simulation (XSS/CSRF logs)
+  // Security headers
   app.use((req, res, next) => {
     res.setHeader("X-XSS-Protection", "1; mode=block");
     res.setHeader("X-Frame-Options", "SAMEORIGIN");
@@ -1045,11 +255,10 @@ async function startServer() {
     next();
   });
 
-  // --- API ROUTES ---
+  // --- API ROUTES (100% DIRECT MYSQL QUERIES) ---
 
-  // Database Connection Status & Sync Controls
+  // Database Connection Status
   app.get("/api/db-status", async (req, res) => {
-    const pool = checkAndInitDbPool();
     const envVars = {
       DB_HOST: !!process.env.DB_HOST,
       DB_USER: !!process.env.DB_USER,
@@ -1057,63 +266,44 @@ async function startServer() {
       DB_PASSWORD: !!process.env.DB_PASSWORD,
       DB_PORT: !!process.env.DB_PORT
     };
-    
-    if (!pool) {
-      return res.json({
-        connected: false,
-        fallback: true,
-        env: envVars,
-        error: "No database credentials found. Please configure DB_HOST, DB_USER, DB_NAME, and DB_PASSWORD in the AI Studio Settings panel."
-      });
-    }
 
     try {
-      // Run a lightweight test query
+      const pool = getDbPool();
       await pool.query("SELECT 1");
       return res.json({
         connected: true,
         fallback: false,
         env: envVars,
-        message: "Successfully connected to Hostinger MySQL Database!"
+        message: "Successfully connected to Hostinger MySQL Database (Source of Truth)!"
       });
     } catch (err: any) {
       return res.json({
         connected: false,
-        fallback: true,
+        fallback: false,
         env: envVars,
-        error: `Could not connect to Hostinger MySQL: ${err.message}. Please verify Remote MySQL / IP Whitelist permissions in Hostinger.`
+        error: `Could not connect to Hostinger MySQL: ${err.message}`
       });
     }
   });
 
+  // Non-destructive DB Sync/Backup Endpoint
   app.post("/api/db-sync", async (req, res) => {
     const { action } = req.body;
-    const pool = checkAndInitDbPool();
-    if (!pool) {
-      return res.status(400).json({ success: false, message: "Database connection is not configured." });
-    }
-
     try {
-      if (action === "push") {
-        const db = readDb();
-        await syncToMySql(db);
-        logActivity("Manually backed up all current website data to Hostinger MySQL");
-        return res.json({ success: true, message: "Successfully pushed and backed up all current data to Hostinger MySQL Database!" });
-      } else if (action === "pull") {
-        await loadFromMySql();
-        logActivity("Manually pulled latest database records from Hostinger MySQL");
-        return res.json({ success: true, message: "Successfully pulled and synchronized all data from Hostinger MySQL Database!" });
-      } else {
-        return res.status(400).json({ success: false, message: "Invalid action. Choose 'push' or 'pull'." });
+      const pool = getDbPool();
+      if (action === "verify" || action === "pull") {
+        await initDatabaseAndVerifyCounts();
+        await logActivity("Manually verified MySQL database table status", "Admin");
+        return res.json({ success: true, message: "Hostinger MySQL database verified and synchronized." });
       }
+      return res.json({ success: true, message: "MySQL is active and acts as the sole source of truth." });
     } catch (err: any) {
-      console.error("Database sync error:", err);
-      return res.status(500).json({ success: false, message: `Sync failed: ${err.message}` });
+      return res.status(500).json({ success: false, message: `Verification failed: ${err.message}` });
     }
   });
 
-  // High Security Admin Authentication Endpoints
-  app.post("/api/auth/login", (req, res) => {
+  // Authentication
+  app.post("/api/auth/login", async (req, res) => {
     const { email, password } = req.body;
     if (!email || !password) {
       return res.status(400).json({ success: false, message: "Email/Username and Password are required." });
@@ -1122,55 +312,53 @@ async function startServer() {
     const cleanInput = String(email).trim().toLowerCase();
     const cleanPassword = String(password).trim();
 
-    // Strict credential verification:
-    // Username: foujia@creattivee.com (or foujia)
-    // Password: Login@2025
     const isUserValid = (cleanInput === "foujia@creattivee.com" || cleanInput === "foujia");
     const isPasswordValid = (cleanPassword === "Login@2025");
 
     if (!isUserValid || !isPasswordValid) {
-      logActivity(`Blocked unauthorized login attempt for '${cleanInput}'`, "Security Firewall");
+      await logActivity(`Blocked unauthorized login attempt for '${cleanInput}'`, "Security Firewall");
       return res.status(401).json({
         success: false,
         message: "Invalid Username or Password. Access denied."
       });
     }
 
-    const db = readDb();
-    let user = db.users.find(u => u.email.toLowerCase() === "foujia@creattivee.com");
-    if (!user) {
-      user = {
-        id: 1,
-        name: "Foujia (Admin)",
-        email: "foujia@creattivee.com",
-        role: "admin",
-        permissions: ["all"]
-      };
-      if (!db.users || db.users.length === 0) {
-        db.users = [user];
-      } else {
-        db.users[0] = user;
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM users WHERE email = ? LIMIT 1", ["foujia@creattivee.com"]);
+      let user = rows[0];
+
+      if (!user) {
+        // Create user if not exists
+        await pool.query(
+          "INSERT INTO users (name, email, password, role, permissions) VALUES (?, ?, ?, ?, ?)",
+          ["Foujia (Admin)", "foujia@creattivee.com", "$2y$12$R.3C7hSj07Xg696BfDIn3e1gYy3h52gU8oP1.h98aO6N9nZt/K7B.", "admin", JSON.stringify(["all"])]
+        );
+        const [newRows]: any = await pool.query("SELECT * FROM users WHERE email = ? LIMIT 1", ["foujia@creattivee.com"]);
+        user = newRows[0];
       }
-      writeDb(db);
-    }
 
-    // Generate secure randomized crypto token
-    const token = createAdminSession(user);
-    logActivity("Admin successfully authenticated and generated security session", user.name);
-
-    return res.json({
-      success: true,
-      token,
-      user: {
-        id: user.id,
+      const sessionUser = {
+        id: Number(user.id),
         name: user.name,
         email: user.email,
         role: user.role
-      }
-    });
+      };
+
+      const token = createAdminSession(sessionUser);
+      await logActivity("Admin successfully authenticated and generated security session", user.name);
+
+      return res.json({
+        success: true,
+        token,
+        user: sessionUser
+      });
+    } catch (err: any) {
+      console.error("Login error:", err);
+      return res.status(500).json({ success: false, message: "Authentication database error" });
+    }
   });
 
-  // Verify Active Session Token
   app.get("/api/auth/me", (req, res) => {
     const session = getAdminSession(req);
     if (!session) {
@@ -1192,8 +380,7 @@ async function startServer() {
     });
   });
 
-  // Terminate Active Session (Logout)
-  app.post("/api/auth/logout", (req, res) => {
+  app.post("/api/auth/logout", async (req, res) => {
     const authHeader = req.headers.authorization || (req.headers["x-admin-token"] as string | undefined);
     if (authHeader) {
       let token = Array.isArray(authHeader) ? authHeader[0] : authHeader;
@@ -1206,528 +393,423 @@ async function startServer() {
         activeAdminSessions.delete(token);
       }
     }
-    logActivity("Admin session terminated via logout", "Admin");
+    await logActivity("Admin session terminated via logout", "Admin");
     res.json({ success: true, message: "Logged out successfully" });
   });
 
   // Activity Logs
-  app.get("/api/activity-logs", (req, res) => {
-    const db = readDb();
-    res.json(db.activity_logs || []);
-  });
-
-  // Services CRUD
-  app.get("/api/services", (req, res) => {
-    res.json(readDb().services);
-  });
-
-  app.post("/api/services", (req, res) => {
-    const db = readDb();
-    const newService = {
-      id: db.services.length > 0 ? Math.max(...db.services.map(s => s.id)) + 1 : 1,
-      ...req.body,
-      slug: req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
-    };
-    db.services.push(newService);
-    writeDb(db);
-    logActivity(`Created service: ${newService.title}`);
-    res.json({ success: true, service: newService });
-  });
-
-  app.put("/api/services/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.services.findIndex(s => s.id === id);
-    if (index !== -1) {
-      db.services[index] = { ...db.services[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated service: ${db.services[index].title}`);
-      res.json({ success: true, service: db.services[index] });
-    } else {
-      res.status(404).json({ message: "Service not found" });
+  app.get("/api/activity-logs", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM activity_logs ORDER BY id DESC LIMIT 150");
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        event: r.event,
+        date: r.date,
+        user: r.user
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/services/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const service = db.services.find(s => s.id === id);
-    if (service) {
-      db.services = db.services.filter(s => s.id !== id);
-      writeDb(db);
-      logActivity(`Deleted service: ${service.title}`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Service not found" });
+  // Services CRUD (Direct MySQL)
+  app.get("/api/services", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM services ORDER BY id ASC");
+      const services = rows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        category: r.category,
+        description: r.description,
+        features: safeJsonParse(r.features, []),
+        packages: safeJsonParse(r.packages, []),
+        faq: safeJsonParse(r.faq, []),
+        seo_title: r.seo_title || "",
+        seo_description: r.seo_description || "",
+        seo_keywords: r.seo_keywords || ""
+      }));
+      res.json(services);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  // Packages CRUD
-  app.get("/api/packages", (req, res) => {
-    res.json(readDb().packages);
-  });
-
-  app.post("/api/packages", (req, res) => {
-    const db = readDb();
-    const newPkg = {
-      id: db.packages.length > 0 ? Math.max(...db.packages.map(p => p.id)) + 1 : 1,
-      ...req.body
-    };
-    db.packages.push(newPkg);
-    writeDb(db);
-    logActivity(`Created package: ${newPkg.title}`);
-    res.json({ success: true, package: newPkg });
-  });
-
-  app.put("/api/packages/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.packages.findIndex(p => p.id === id);
-    if (index !== -1) {
-      db.packages[index] = { ...db.packages[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated package: ${db.packages[index].title}`);
-      res.json({ success: true, package: db.packages[index] });
-    } else {
-      res.status(404).json({ message: "Package not found" });
-    }
-  });
-
-  app.delete("/api/packages/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const pkg = db.packages.find(p => p.id === id);
-    if (pkg) {
-      db.packages = db.packages.filter(p => p.id !== id);
-      writeDb(db);
-      logActivity(`Deleted package: ${pkg.title}`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Package not found" });
-    }
-  });
-
-  // Partners CRUD
-  app.get("/api/partners", (req, res) => {
-    const db = readDb();
-    res.json(db.partners || []);
-  });
-
-  app.post("/api/partners", (req, res) => {
-    const db = readDb();
-    if (!db.partners) db.partners = [];
-    const newPartner = {
-      id: db.partners.length > 0 ? Math.max(...db.partners.map(p => p.id)) + 1 : 1,
-      ...req.body
-    };
-    db.partners.push(newPartner);
-    writeDb(db);
-    logActivity(`Created partner logo: ${newPartner.name}`);
-    res.json({ success: true, partner: newPartner });
-  });
-
-  app.put("/api/partners/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    if (!db.partners) db.partners = [];
-    const index = db.partners.findIndex(p => p.id === id);
-    if (index !== -1) {
-      db.partners[index] = { ...db.partners[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated partner logo: ${db.partners[index].name}`);
-      res.json({ success: true, partner: db.partners[index] });
-    } else {
-      res.status(404).json({ message: "Partner not found" });
-    }
-  });
-
-  app.delete("/api/partners/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    if (!db.partners) db.partners = [];
-    const partner = db.partners.find(p => p.id === id);
-    if (partner) {
-      db.partners = db.partners.filter(p => p.id !== id);
-      writeDb(db);
-      logActivity(`Deleted partner logo: ${partner.name}`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Partner not found" });
-    }
-  });
-
-  // Benefits (Why Choose Us) CRUD
-  app.get("/api/benefits", (req, res) => {
-    const db = readDb();
-    res.json(db.benefits || []);
-  });
-
-  app.post("/api/benefits", (req, res) => {
-    const db = readDb();
-    if (!db.benefits) db.benefits = [];
-    const newBenefit = {
-      id: db.benefits.length > 0 ? Math.max(...db.benefits.map(b => b.id)) + 1 : 1,
-      ...req.body
-    };
-    db.benefits.push(newBenefit);
-    writeDb(db);
-    logActivity(`Created benefit: ${newBenefit.title}`);
-    res.json({ success: true, benefit: newBenefit });
-  });
-
-  app.put("/api/benefits/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    if (!db.benefits) db.benefits = [];
-    const index = db.benefits.findIndex(b => b.id === id);
-    if (index !== -1) {
-      db.benefits[index] = { ...db.benefits[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated benefit: ${db.benefits[index].title}`);
-      res.json({ success: true, benefit: db.benefits[index] });
-    } else {
-      res.status(404).json({ message: "Benefit not found" });
-    }
-  });
-
-  app.delete("/api/benefits/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    if (!db.benefits) db.benefits = [];
-    const benefit = db.benefits.find(b => b.id === id);
-    if (benefit) {
-      db.benefits = db.benefits.filter(b => b.id !== id);
-      writeDb(db);
-      logActivity(`Deleted benefit: ${benefit.title}`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Benefit not found" });
-    }
-  });
-
-
-  // Portfolio CRUD
-  app.get("/api/portfolio", (req, res) => {
-    res.json(readDb().portfolio);
-  });
-
-  app.post("/api/portfolio", (req, res) => {
-    const db = readDb();
-    const newProject = {
-      id: db.portfolio.length > 0 ? Math.max(...db.portfolio.map(p => p.id)) + 1 : 1,
-      ...req.body,
-      slug: req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")
-    };
-    db.portfolio.push(newProject);
-    writeDb(db);
-    logActivity(`Created portfolio item: ${newProject.title}`);
-    res.json({ success: true, project: newProject });
-  });
-
-  app.put("/api/portfolio/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.portfolio.findIndex(p => p.id === id);
-    if (index !== -1) {
-      db.portfolio[index] = { ...db.portfolio[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated portfolio item: ${db.portfolio[index].title}`);
-      res.json({ success: true, project: db.portfolio[index] });
-    } else {
-      res.status(404).json({ message: "Portfolio item not found" });
-    }
-  });
-
-  app.delete("/api/portfolio/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const p = db.portfolio.find(item => item.id === id);
-    if (p) {
-      db.portfolio = db.portfolio.filter(item => item.id !== id);
-      writeDb(db);
-      logActivity(`Deleted portfolio item: ${p.title}`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Portfolio item not found" });
-    }
-  });
-
-  // Blogs CRUD
-  app.get("/api/blogs", (req, res) => {
-    res.json(readDb().blogs);
-  });
-
-  app.post("/api/blogs", (req, res) => {
-    const db = readDb();
-    const newBlog = {
-      id: db.blogs.length > 0 ? Math.max(...db.blogs.map(b => b.id)) + 1 : 1,
-      ...req.body,
-      slug: req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, ""),
-      views: 0,
-      comments: [],
-      reading_time: Math.max(1, Math.round(req.body.content.replace(/<[^>]*>/g, "").split(/\s+/).length / 200))
-    };
-    db.blogs.push(newBlog);
-    writeDb(db);
-    logActivity(`Created blog article: ${newBlog.title}`);
-    res.json({ success: true, blog: newBlog });
-  });
-
-  app.put("/api/blogs/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.blogs.findIndex(b => b.id === id);
-    if (index !== -1) {
-      db.blogs[index] = { ...db.blogs[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated blog article: ${db.blogs[index].title}`);
-      res.json({ success: true, blog: db.blogs[index] });
-    } else {
-      res.status(404).json({ message: "Blog not found" });
-    }
-  });
-
-  app.delete("/api/blogs/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const b = db.blogs.find(item => item.id === id);
-    if (b) {
-      db.blogs = db.blogs.filter(item => item.id !== id);
-      writeDb(db);
-      logActivity(`Deleted blog article: ${b.title}`);
-      res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Blog not found" });
-    }
-  });
-
-  app.post("/api/blogs/:id/comments", (req, res) => {
-    const id = parseInt(req.params.id);
-    const { name, comment } = req.body;
-    const db = readDb();
-    const index = db.blogs.findIndex(b => b.id === id);
-    if (index !== -1) {
-      const newComment = {
-        name: name || "Anonymous",
-        comment: comment || "",
-        date: new Date().toISOString().substring(0, 10)
+  app.post("/api/services", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const slug = req.body.slug || req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const [result]: any = await pool.query(
+        `INSERT INTO services (title, slug, category, description, features, packages, faq, seo_title, seo_description, seo_keywords)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.title,
+          slug,
+          req.body.category || "Design",
+          req.body.description || "",
+          JSON.stringify(req.body.features || []),
+          JSON.stringify(req.body.packages || []),
+          JSON.stringify(req.body.faq || []),
+          req.body.seo_title || "",
+          req.body.seo_description || "",
+          req.body.seo_keywords || ""
+        ]
+      );
+      const newService = {
+        id: Number(result.insertId),
+        ...req.body,
+        slug
       };
-      if (!db.blogs[index].comments) {
-        db.blogs[index].comments = [];
-      }
-      db.blogs[index].comments.push(newComment);
-      writeDb(db);
-      logActivity(`New blog comment by ${newComment.name}`);
-      res.json({ success: true, comment: newComment });
-    } else {
-      res.status(404).json({ message: "Blog not found" });
+      await logActivity(`Created service: ${newService.title}`);
+      res.json({ success: true, service: newService });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  // Leads CRUD (Website Leads + Manual Leads)
-  app.get("/api/leads", (req, res) => {
-    res.json(readDb().leads);
-  });
-
-  app.post("/api/leads", (req, res) => {
-    const db = readDb();
-    const newLead = {
-      id: db.leads.length > 0 ? Math.max(...db.leads.map(l => l.id)) + 1 : 1,
-      type: req.body.type || "website",
-      client_name: req.body.client_name,
-      client_email: req.body.client_email,
-      client_phone: req.body.client_phone || "",
-      service_interested: req.body.service_interested || "Website Designing",
-      message: req.body.message || "",
-      status: "pending",
-      staff_assigned: req.body.staff_assigned || "Unassigned",
-      follow_up_date: req.body.follow_up_date || "",
-      notes: [
-        { text: `Lead registered via ${req.body.type || "website"} form.`, date: new Date().toISOString().substring(0, 16).replace("T", " "), author: "System" }
-      ],
-      attachments: req.body.attachments || [],
-      timeline: [
-        { label: "Lead Logged", text: "Registered in CRM index", date: new Date().toISOString().substring(0, 16).replace("T", " ") }
-      ],
-      created_at: new Date().toISOString()
-    };
-    db.leads.unshift(newLead);
-    writeDb(db);
-    logActivity(`New Lead registered: ${newLead.client_name} (${newLead.service_interested})`);
-    res.json({ success: true, lead: newLead });
-  });
-
-  app.put("/api/leads/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.leads.findIndex(l => l.id === id);
-    if (index !== -1) {
-      const oldStatus = db.leads[index].status;
-      db.leads[index] = { ...db.leads[index], ...req.body };
-      
-      // If status changed, update timeline
-      if (req.body.status && req.body.status !== oldStatus) {
-        db.leads[index].timeline.push({
-          label: "Status Changed",
-          text: `Status updated from ${oldStatus} to ${req.body.status}`,
-          date: new Date().toISOString().substring(0, 16).replace("T", " ")
-        });
-      }
-
-      writeDb(db);
-      logActivity(`Updated lead: ${db.leads[index].client_name}`);
-      res.json({ success: true, lead: db.leads[index] });
-    } else {
-      res.status(404).json({ message: "Lead not found" });
+  app.put("/api/services/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      const slug = req.body.slug || req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      await pool.query(
+        `UPDATE services SET title = ?, slug = ?, category = ?, description = ?, features = ?, packages = ?, faq = ?, seo_title = ?, seo_description = ?, seo_keywords = ?
+         WHERE id = ?`,
+        [
+          req.body.title,
+          slug,
+          req.body.category || "Design",
+          req.body.description || "",
+          JSON.stringify(req.body.features || []),
+          JSON.stringify(req.body.packages || []),
+          JSON.stringify(req.body.faq || []),
+          req.body.seo_title || "",
+          req.body.seo_description || "",
+          req.body.seo_keywords || "",
+          id
+        ]
+      );
+      await logActivity(`Updated service #${id}: ${req.body.title}`);
+      res.json({ success: true, service: { id, ...req.body, slug } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.post("/api/leads/:id/notes", (req, res) => {
-    const id = parseInt(req.params.id);
-    const { text, author } = req.body;
-    const db = readDb();
-    const index = db.leads.findIndex(l => l.id === id);
-    if (index !== -1) {
-      const newNote = {
-        text,
-        date: new Date().toISOString().substring(0, 16).replace("T", " "),
-        author: author || "Staff"
+  app.delete("/api/services/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM services WHERE id = ?", [id]);
+      await logActivity(`Deleted service #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Packages CRUD (Direct MySQL)
+  app.get("/api/packages", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM packages ORDER BY id ASC");
+      const packages = rows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        price: r.price,
+        timeline: r.timeline,
+        features: safeJsonParse(r.features, []),
+        highlight: Boolean(r.highlight),
+        button_text: r.button_text || "Buy Now"
+      }));
+      res.json(packages);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/packages", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        `INSERT INTO packages (title, price, timeline, features, highlight, button_text)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.title,
+          req.body.price,
+          req.body.timeline || "14 Days",
+          JSON.stringify(req.body.features || []),
+          req.body.highlight ? 1 : 0,
+          req.body.button_text || "Buy Now"
+        ]
+      );
+      const newPkg = {
+        id: Number(result.insertId),
+        ...req.body
       };
-      db.leads[index].notes.unshift(newNote);
-      db.leads[index].timeline.push({
-        label: "Note Added",
-        text: `Staff note added: "${text.substring(0, 30)}..."`,
-        date: new Date().toISOString().substring(0, 16).replace("T", " ")
-      });
-      writeDb(db);
-      res.json({ success: true, lead: db.leads[index] });
-    } else {
-      res.status(404).json({ message: "Lead not found" });
+      await logActivity(`Created package: ${newPkg.title}`);
+      res.json({ success: true, package: newPkg });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/leads/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const lead = db.leads.find(l => l.id === id);
-    if (lead) {
-      db.leads = db.leads.filter(l => l.id !== id);
-      writeDb(db);
-      logActivity(`Deleted lead: ${lead.client_name}`);
+  app.put("/api/packages/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query(
+        `UPDATE packages SET title = ?, price = ?, timeline = ?, features = ?, highlight = ?, button_text = ?
+         WHERE id = ?`,
+        [
+          req.body.title,
+          req.body.price,
+          req.body.timeline || "14 Days",
+          JSON.stringify(req.body.features || []),
+          req.body.highlight ? 1 : 0,
+          req.body.button_text || "Buy Now",
+          id
+        ]
+      );
+      await logActivity(`Updated package #${id}: ${req.body.title}`);
+      res.json({ success: true, package: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/packages/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM packages WHERE id = ?", [id]);
+      await logActivity(`Deleted package #${id}`);
       res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Lead not found" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  // Import CSV leads route
-  app.post("/api/leads/import-csv", (req, res) => {
-    const { csvData } = req.body; // Expect an array of parsed lead objects
-    if (!Array.isArray(csvData)) {
-      return res.status(400).json({ success: false, message: "Invalid CSV payload structure" });
-    }
-    const db = readDb();
-    let importedCount = 0;
-    csvData.forEach((row: any) => {
-      if (row.client_name && row.client_email) {
-        const newLead = {
-          id: db.leads.length > 0 ? Math.max(...db.leads.map(l => l.id)) + 1 : 1,
-          type: "imported",
-          client_name: row.client_name,
-          client_email: row.client_email,
-          client_phone: row.client_phone || "",
-          service_interested: row.service_interested || "Website Designing",
-          message: row.message || "CSV Imported record",
-          status: "pending",
-          staff_assigned: "Unassigned",
-          follow_up_date: "",
-          notes: [
-            { text: "Lead registered via bulk CSV import.", date: new Date().toISOString().substring(0, 16).replace("T", " "), author: "System" }
-          ],
-          attachments: [],
-          timeline: [
-            { label: "CSV Import", text: "Uploaded in bulk", date: new Date().toISOString().substring(0, 16).replace("T", " ") }
-          ],
-          created_at: new Date().toISOString()
-        };
-        db.leads.unshift(newLead);
-        importedCount++;
-      }
-    });
-    writeDb(db);
-    logActivity(`Imported ${importedCount} leads via CSV bulk upload`);
-    res.json({ success: true, count: importedCount, leads: db.leads });
-  });
-
-  // Clients CRUD
-  app.get("/api/clients", (req, res) => {
-    res.json(readDb().clients);
-  });
-
-  app.post("/api/clients", (req, res) => {
-    const db = readDb();
-    const newClient = {
-      id: db.clients.length > 0 ? Math.max(...db.clients.map(c => c.id)) + 1 : 1,
-      ...req.body,
-      projects: req.body.projects || [],
-      invoices: req.body.invoices || [],
-      documents: req.body.documents || [],
-      payments: req.body.payments || [],
-      created_at: new Date().toISOString().substring(0, 10)
-    };
-    db.clients.push(newClient);
-    writeDb(db);
-    logActivity(`Registered new client: ${newClient.name}`);
-    res.json({ success: true, client: newClient });
-  });
-
-  app.put("/api/clients/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.clients.findIndex(c => c.id === id);
-    if (index !== -1) {
-      db.clients[index] = { ...db.clients[index], ...req.body };
-      writeDb(db);
-      logActivity(`Updated client specs: ${db.clients[index].name}`);
-      res.json({ success: true, client: db.clients[index] });
-    } else {
-      res.status(404).json({ message: "Client not found" });
+  // Clients CRUD (Direct MySQL)
+  app.get("/api/clients", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM clients ORDER BY id DESC");
+      const clients = rows.map((r: any) => ({
+        id: Number(r.id),
+        name: r.name,
+        email: r.email,
+        phone: r.phone || "",
+        company_name: r.company_name || "",
+        address: r.address || "",
+        projects: safeJsonParse(r.projects, []),
+        invoices: safeJsonParse(r.invoices, []),
+        documents: safeJsonParse(r.documents, []),
+        payments: safeJsonParse(r.payments, []),
+        notes: r.notes || "",
+        created_at: r.created_at
+      }));
+      res.json(clients);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/clients/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const client = db.clients.find(c => c.id === id);
-    if (client) {
-      db.clients = db.clients.filter(c => c.id !== id);
-      writeDb(db);
-      logActivity(`Deleted client record: ${client.name}`);
+  app.post("/api/clients", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        `INSERT INTO clients (name, email, phone, company_name, address, projects, invoices, documents, payments, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.name,
+          req.body.email,
+          req.body.phone || "",
+          req.body.company_name || "",
+          req.body.address || "",
+          JSON.stringify(req.body.projects || []),
+          JSON.stringify(req.body.invoices || []),
+          JSON.stringify(req.body.documents || []),
+          JSON.stringify(req.body.payments || []),
+          req.body.notes || ""
+        ]
+      );
+      const newClient = {
+        id: Number(result.insertId),
+        ...req.body,
+        created_at: new Date().toISOString()
+      };
+      await logActivity(`Registered new client: ${newClient.name}`);
+      res.json({ success: true, client: newClient });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/clients/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query(
+        `UPDATE clients SET name = ?, email = ?, phone = ?, company_name = ?, address = ?, projects = ?, invoices = ?, documents = ?, payments = ?, notes = ?
+         WHERE id = ?`,
+        [
+          req.body.name,
+          req.body.email,
+          req.body.phone || "",
+          req.body.company_name || "",
+          req.body.address || "",
+          JSON.stringify(req.body.projects || []),
+          JSON.stringify(req.body.invoices || []),
+          JSON.stringify(req.body.documents || []),
+          JSON.stringify(req.body.payments || []),
+          req.body.notes || "",
+          id
+        ]
+      );
+      await logActivity(`Updated client specs: ${req.body.name}`);
+      res.json({ success: true, client: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/clients/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM clients WHERE id = ?", [id]);
+      await logActivity(`Deleted client #${id}`);
       res.json({ success: true });
-    } else {
-      res.status(404).json({ message: "Client not found" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  // Proposals CRUD + attractive generator
-  app.get("/api/proposals", (req, res) => {
-    res.json(readDb().proposals || []);
+  // Proposals CRUD (Direct MySQL)
+  app.get("/api/proposals", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM proposals ORDER BY id DESC");
+      const proposals = rows.map((r: any) => ({
+        id: Number(r.id),
+        lead_id: r.lead_id ? Number(r.lead_id) : null,
+        title: r.title,
+        client_name: r.client_name || "",
+        client_email: r.client_email || "",
+        client_phone: r.client_phone || "",
+        status: r.status || "draft",
+        services_selected: safeJsonParse(r.services_selected, []),
+        packages_selected: safeJsonParse(r.packages_selected, []),
+        price: Number(r.price),
+        terms: r.terms || "",
+        timeline: r.timeline || "",
+        scope_html: r.scope_html || "",
+        signature_data: r.signature_data || "",
+        download_count: Number(r.download_count || 0),
+        last_downloaded_at: r.last_downloaded_at || null,
+        pdf_generated_at: r.pdf_generated_at || null,
+        pdf_version: Number(r.pdf_version || 1),
+        created_at: r.created_at
+      }));
+      res.json(proposals);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // Dedicated Enterprise Puppeteer PDF Export Endpoint (Direct File Download)
+  app.post("/api/proposals", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        `INSERT INTO proposals (lead_id, title, services_selected, packages_selected, price, terms, timeline, signature_data, status, scope_html, client_name, client_email, client_phone)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.lead_id || null,
+          req.body.title,
+          JSON.stringify(req.body.services_selected || []),
+          JSON.stringify(req.body.packages_selected || []),
+          req.body.price || 0,
+          req.body.terms || "",
+          req.body.timeline || "",
+          req.body.signature_data || "",
+          req.body.status || "draft",
+          req.body.scope_html || "",
+          req.body.client_name || "",
+          req.body.client_email || "",
+          req.body.client_phone || ""
+        ]
+      );
+      const newProposal = {
+        id: Number(result.insertId),
+        ...req.body,
+        created_at: new Date().toISOString()
+      };
+      await logActivity(`Generated proposal #${newProposal.id}: ${newProposal.title} (₹${newProposal.price})`);
+      res.json({ success: true, proposal: newProposal });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/proposals/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query(
+        `UPDATE proposals SET title = ?, services_selected = ?, packages_selected = ?, price = ?, terms = ?, timeline = ?, signature_data = ?, status = ?, scope_html = ?, client_name = ?, client_email = ?, client_phone = ?
+         WHERE id = ?`,
+        [
+          req.body.title,
+          JSON.stringify(req.body.services_selected || []),
+          JSON.stringify(req.body.packages_selected || []),
+          req.body.price || 0,
+          req.body.terms || "",
+          req.body.timeline || "",
+          req.body.signature_data || "",
+          req.body.status || "draft",
+          req.body.scope_html || "",
+          req.body.client_name || "",
+          req.body.client_email || "",
+          req.body.client_phone || "",
+          id
+        ]
+      );
+      await logActivity(`Updated proposal #${id}: ${req.body.title}`);
+      res.json({ success: true, proposal: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/proposals/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM proposals WHERE id = ?", [id]);
+      await logActivity(`Deleted proposal #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Enterprise Puppeteer PDF Export Endpoint (Direct MySQL Query & Incremental Counter)
   app.post("/api/proposals/export-pdf/:proposalId", async (req, res) => {
     const startTime = Date.now();
     const proposalId = parseInt(req.params.proposalId);
     console.log(`[PDF Engine] Initiating export for Proposal #${proposalId}...`);
 
     try {
-      const db = readDb();
-      const proposal: any = db.proposals?.find((p: any) => p.id === proposalId);
-      
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM proposals WHERE id = ? LIMIT 1", [proposalId]);
+      const proposal = rows[0];
+
       let htmlContent = req.body?.html;
 
       if (!htmlContent && proposal) {
-        // Fallback reconstructed HTML from DB record
         const clientName = proposal.client_name || "Valued Client";
         const clientEmail = proposal.client_email || "";
         const clientPhone = proposal.client_phone || "";
@@ -1786,22 +868,6 @@ async function startServer() {
                 <p style="margin: 2px 0 0 0; font-size: 28px; font-weight: 900; color: #0f172a;">₹${price}</p>
               </div>
             </div>
-            <div style="margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; padding-top: 16px; border-top: 1px dashed #cbd5e1;">
-              <div>
-                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">CLIENT ACCEPTANCE</span>
-                <div style="height: 40px; border-bottom: 1px dashed #cbd5e1; display: flex; align-items: flex-end;">
-                  <span style="font-size: 11px; color: #94a3b8; font-style: italic;">Awaiting Client E-Signature</span>
-                </div>
-                <p style="font-size: 11px; color: #64748b; margin-top: 6px;">${clientName}</p>
-              </div>
-              <div>
-                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">CREATTIVEE AUTHORIZATION</span>
-                <div style="height: 40px; border-bottom: 1px dashed #cbd5e1; display: flex; align-items: flex-end;">
-                  <span style="font-size: 12px; color: #7e22ce; font-weight: 700; font-style: italic;">${proposal.signature_data || "Creattivee Director Sign"}</span>
-                </div>
-                <p style="font-size: 11px; color: #64748b; margin-top: 6px;">Creattivee Director & Labs Lead</p>
-              </div>
-            </div>
           </div>
         `;
       }
@@ -1810,7 +876,6 @@ async function startServer() {
         return res.status(404).json({ success: false, message: "Proposal data or HTML payload not found" });
       }
 
-      // Compile full high-resolution styled document for Puppeteer
       const fullDocumentHtml = `
         <!DOCTYPE html>
         <html lang="en">
@@ -1823,30 +888,10 @@ async function startServer() {
             <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
             <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
             <style>
-              @page {
-                size: A4 portrait;
-                margin: 0;
-              }
-              * {
-                box-sizing: border-box;
-                -webkit-print-color-adjust: exact !important;
-                print-color-adjust: exact !important;
-              }
-              body {
-                margin: 0;
-                padding: 0;
-                background-color: #ffffff;
-                font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-                color: #1e293b;
-              }
-              #proposal-printable-canvas {
-                width: 100% !important;
-                max-width: 850px !important;
-                margin: 0 auto !important;
-                padding: 36px 40px !important;
-                border: none !important;
-                box-shadow: none !important;
-              }
+              @page { size: A4 portrait; margin: 0; }
+              * { box-sizing: border-box; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+              body { margin: 0; padding: 0; background-color: #ffffff; font-family: 'Plus Jakarta Sans', sans-serif; color: #1e293b; }
+              #proposal-printable-canvas { width: 100% !important; max-width: 850px !important; margin: 0 auto !important; padding: 36px 40px !important; }
             </style>
           </head>
           <body>
@@ -1855,241 +900,846 @@ async function startServer() {
         </html>
       `;
 
-      // Launch Puppeteer Headless Browser
-      console.log(`[PDF Engine] Launching Puppeteer Headless Chromium...`);
-      const browser = await puppeteer.launch({
+      // Multi-strategy Chromium locator
+      const possibleCachePaths = [
+        "/root/.cache/puppeteer/chrome/linux-152.0.7977.42/chrome-linux64/chrome",
+        "/home/.cache/puppeteer/chrome/linux-152.0.7977.42/chrome-linux64/chrome",
+        "/tmp/localChromium/chromium",
+        "/usr/bin/google-chrome",
+        "/usr/bin/google-chrome-stable",
+        "/usr/bin/chromium",
+        "/usr/bin/chromium-browser"
+      ];
+
+      let executablePath = "";
+      try {
+        const sparticuzPath = await chromium.executablePath();
+        if (sparticuzPath && fs.existsSync(sparticuzPath)) {
+          executablePath = sparticuzPath;
+        }
+      } catch {
+        // Fallback check
+      }
+
+      if (!executablePath) {
+        for (const testPath of possibleCachePaths) {
+          if (fs.existsSync(testPath)) {
+            executablePath = testPath;
+            break;
+          }
+        }
+      }
+
+      const launchOptions: any = {
         args: [
           "--no-sandbox",
           "--disable-setuid-sandbox",
           "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
+          "--disable-gpu",
+          "--single-process",
           "--no-first-run",
           "--no-zygote",
-          "--single-process",
-          "--disable-gpu"
+          "--disable-accelerated-2d-canvas"
         ],
         headless: true
-      });
+      };
 
-      console.log(`[PDF Engine] Puppeteer browser started successfully`);
+      if (executablePath) {
+        launchOptions.executablePath = executablePath;
+      }
+
+      const browser = await puppeteer.launch(launchOptions);
       const page = await browser.newPage();
       await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
-      
-      console.log(`[PDF Engine] Setting proposal HTML and awaiting network/font assets...`);
-      await page.setContent(fullDocumentHtml, {
-        waitUntil: ["load", "domcontentloaded"],
-        timeout: 30000
-      });
+      await page.setContent(fullDocumentHtml, { waitUntil: ["load", "domcontentloaded"], timeout: 30000 });
 
-      console.log(`[PDF Engine] Generating A4 high-resolution PDF binary buffer...`);
       const pdfBuffer = await page.pdf({
         format: "A4",
         printBackground: true,
         preferCSSPageSize: true,
         displayHeaderFooter: false,
-        margin: { top: "0mm", right: "0mm", bottom: "0mm", left: "0mm" },
-        scale: 1,
-        landscape: false
+        margin: { top: "0mm", right: "0mm", bottom: "0mm", left: "0mm" }
       });
 
       await browser.close();
-      const durationMs = Date.now() - startTime;
-      const fileSizeKb = Math.round(pdfBuffer.length / 1024);
-      console.log(`[PDF Engine] PDF generated successfully! Duration: ${durationMs}ms, Size: ${fileSizeKb}KB`);
 
-      // Update proposal tracking metrics in DB
+      // Incremental MySQL update
       if (proposal) {
-        (proposal as any).download_count = ((proposal as any).download_count || 0) + 1;
-        (proposal as any).last_downloaded_at = new Date().toISOString();
-        (proposal as any).pdf_generated_at = new Date().toISOString();
-        (proposal as any).pdf_version = ((proposal as any).pdf_version || 1);
-        writeDb(db);
-        logActivity(`Downloaded PDF for proposal #${proposalId} (${fileSizeKb}KB)`);
+        await pool.query(
+          "UPDATE proposals SET download_count = download_count + 1, last_downloaded_at = NOW(), pdf_generated_at = NOW() WHERE id = ?",
+          [proposalId]
+        );
+        await logActivity(`Downloaded PDF for proposal #${proposalId}`);
       }
 
-      const clientNameSafe = (proposal as any)?.client_name ? (proposal as any).client_name.replace(/[^a-zA-Z0-9_-]/g, "_") : "Client";
+      const clientNameSafe = proposal?.client_name ? proposal.client_name.replace(/[^a-zA-Z0-9_-]/g, "_") : "Client";
       const filename = `Proposal-${proposalId}-${clientNameSafe}.pdf`;
 
       res.setHeader("Content-Type", "application/pdf");
       res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
       res.setHeader("Content-Length", pdfBuffer.length);
-      return res.send(pdfBuffer);
+      return res.end(Buffer.from(pdfBuffer));
     } catch (error: any) {
       console.error(`[PDF Engine Error] Failed generating proposal PDF:`, error);
-      res.status(500).json({
-        success: false,
-        message: "Failed to generate PDF via Puppeteer",
-        error: error?.message || String(error)
-      });
+      res.status(500).json({ success: false, message: "Failed to generate PDF via Puppeteer", error: error.message });
     }
   });
 
-  app.post("/api/proposals", (req, res) => {
-    const db = readDb();
-    if (!db.proposals) db.proposals = [];
-    const newProposal = {
-      id: db.proposals.length > 0 ? Math.max(...db.proposals.map(p => p.id)) + 1 : 1,
-      ...req.body,
-      status: req.body.status || "draft",
-      created_at: new Date().toISOString()
-    };
-    db.proposals.unshift(newProposal);
-    writeDb(db);
-    logActivity(`Generated proposal #${newProposal.id}: ${newProposal.title} for ${newProposal.client_name || 'Lead #' + newProposal.lead_id} (₹${newProposal.price})`);
-    res.json({ success: true, proposal: newProposal });
+  // Leads CRUD (Direct MySQL)
+  app.get("/api/leads", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM leads ORDER BY id DESC");
+      const leads = rows.map((r: any) => ({
+        id: Number(r.id),
+        type: r.type || "website",
+        client_name: r.client_name,
+        client_email: r.client_email,
+        client_phone: r.client_phone || "",
+        service_interested: r.service_interested || "",
+        message: r.message || "",
+        status: r.status || "pending",
+        staff_assigned: r.staff_assigned || "Unassigned",
+        follow_up_date: r.follow_up_date || "",
+        notes: safeJsonParse(r.notes, []),
+        attachments: safeJsonParse(r.attachments, []),
+        timeline: safeJsonParse(r.timeline, []),
+        created_at: r.created_at
+      }));
+      res.json(leads);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  app.put("/api/proposals/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    if (!db.proposals) db.proposals = [];
-    const index = db.proposals.findIndex(p => p.id === id);
-    if (index !== -1) {
-      db.proposals[index] = {
-        ...db.proposals[index],
+  app.post("/api/leads", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const initialNotes = [
+        { text: `Lead registered via ${req.body.type || "website"} form.`, date: new Date().toISOString().substring(0, 16).replace("T", " "), author: "System" }
+      ];
+      const initialTimeline = [
+        { label: "Lead Logged", text: "Registered in CRM index", date: new Date().toISOString().substring(0, 16).replace("T", " ") }
+      ];
+
+      const [result]: any = await pool.query(
+        `INSERT INTO leads (type, client_name, client_email, client_phone, service_interested, message, status, staff_assigned, follow_up_date, notes, attachments, timeline)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.type || "website",
+          req.body.client_name,
+          req.body.client_email,
+          req.body.client_phone || "",
+          req.body.service_interested || "Website Designing",
+          req.body.message || "",
+          "pending",
+          req.body.staff_assigned || "Unassigned",
+          req.body.follow_up_date || null,
+          JSON.stringify(initialNotes),
+          JSON.stringify(req.body.attachments || []),
+          JSON.stringify(initialTimeline)
+        ]
+      );
+      const newLead = {
+        id: Number(result.insertId),
         ...req.body,
-        updated_at: new Date().toISOString()
+        status: "pending",
+        notes: initialNotes,
+        timeline: initialTimeline,
+        created_at: new Date().toISOString()
       };
-      writeDb(db);
-      logActivity(`Updated proposal #${id}: ${db.proposals[index].title}`);
-      res.json({ success: true, proposal: db.proposals[index] });
-    } else {
-      res.status(404).json({ success: false, message: "Proposal not found" });
+      await logActivity(`New Lead registered: ${newLead.client_name} (${newLead.service_interested})`);
+      res.json({ success: true, lead: newLead });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/proposals/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    if (!db.proposals) db.proposals = [];
-    const p = db.proposals.find(item => item.id === id);
-    if (p) {
-      db.proposals = db.proposals.filter(item => item.id !== id);
-      writeDb(db);
-      logActivity(`Deleted proposal #${id}: ${p.title}`);
+  app.put("/api/leads/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      
+      const [existing]: any = await pool.query("SELECT * FROM leads WHERE id = ? LIMIT 1", [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      const current = existing[0];
+      const oldStatus = current.status;
+      let timeline = safeJsonParse(current.timeline, []);
+
+      if (req.body.status && req.body.status !== oldStatus) {
+        timeline.push({
+          label: "Status Changed",
+          text: `Status updated from ${oldStatus} to ${req.body.status}`,
+          date: new Date().toISOString().substring(0, 16).replace("T", " ")
+        });
+      }
+
+      await pool.query(
+        `UPDATE leads SET type = ?, client_name = ?, client_email = ?, client_phone = ?, service_interested = ?, message = ?, status = ?, staff_assigned = ?, follow_up_date = ?, timeline = ?
+         WHERE id = ?`,
+        [
+          req.body.type || current.type,
+          req.body.client_name || current.client_name,
+          req.body.client_email || current.client_email,
+          req.body.client_phone ?? current.client_phone,
+          req.body.service_interested || current.service_interested,
+          req.body.message ?? current.message,
+          req.body.status || current.status,
+          req.body.staff_assigned || current.staff_assigned,
+          req.body.follow_up_date || current.follow_up_date,
+          JSON.stringify(timeline),
+          id
+        ]
+      );
+      await logActivity(`Updated lead: ${req.body.client_name || current.client_name}`);
+      res.json({ success: true, lead: { ...current, ...req.body, timeline } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/leads/:id/notes", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { text, author } = req.body;
+      const pool = getDbPool();
+
+      const [existing]: any = await pool.query("SELECT * FROM leads WHERE id = ? LIMIT 1", [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ message: "Lead not found" });
+      }
+
+      const current = existing[0];
+      const notes = safeJsonParse(current.notes, []);
+      const timeline = safeJsonParse(current.timeline, []);
+
+      const newNote = {
+        text,
+        date: new Date().toISOString().substring(0, 16).replace("T", " "),
+        author: author || "Staff"
+      };
+      notes.unshift(newNote);
+      timeline.push({
+        label: "Note Added",
+        text: `Staff note added: "${text.substring(0, 30)}..."`,
+        date: new Date().toISOString().substring(0, 16).replace("T", " ")
+      });
+
+      await pool.query(
+        "UPDATE leads SET notes = ?, timeline = ? WHERE id = ?",
+        [JSON.stringify(notes), JSON.stringify(timeline), id]
+      );
+
+      res.json({ success: true, lead: { ...current, notes, timeline } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/leads/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM leads WHERE id = ?", [id]);
+      await logActivity(`Deleted lead #${id}`);
       res.json({ success: true });
-    } else {
-      res.status(404).json({ success: false, message: "Proposal not found" });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  // FAQs CRUD
-  app.get("/api/faqs", (req, res) => {
-    res.json(readDb().faqs);
-  });
+  app.post("/api/leads/import-csv", async (req, res) => {
+    const { csvData } = req.body;
+    if (!Array.isArray(csvData)) {
+      return res.status(400).json({ success: false, message: "Invalid CSV payload structure" });
+    }
+    try {
+      const pool = getDbPool();
+      let importedCount = 0;
 
-  app.post("/api/faqs", (req, res) => {
-    const db = readDb();
-    const newFaq = {
-      id: db.faqs.length > 0 ? Math.max(...db.faqs.map(f => f.id)) + 1 : 1,
-      ...req.body
-    };
-    db.faqs.push(newFaq);
-    writeDb(db);
-    logActivity(`Added FAQ item`);
-    res.json({ success: true, faq: newFaq });
-  });
+      for (const row of csvData) {
+        if (row.client_name && row.client_email) {
+          const notes = [
+            { text: "Lead registered via bulk CSV import.", date: new Date().toISOString().substring(0, 16).replace("T", " "), author: "System" }
+          ];
+          const timeline = [
+            { label: "CSV Import", text: "Uploaded in bulk", date: new Date().toISOString().substring(0, 16).replace("T", " ") }
+          ];
 
-  app.put("/api/faqs/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.faqs.findIndex(f => f.id === id);
-    if (index !== -1) {
-      db.faqs[index] = { ...db.faqs[index], ...req.body };
-      writeDb(db);
-      res.json({ success: true, faq: db.faqs[index] });
-    } else {
-      res.status(404).json({ message: "FAQ not found" });
+          await pool.query(
+            `INSERT INTO leads (type, client_name, client_email, client_phone, service_interested, message, status, staff_assigned, follow_up_date, notes, attachments, timeline)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              "imported",
+              row.client_name,
+              row.client_email,
+              row.client_phone || "",
+              row.service_interested || "Website Designing",
+              row.message || "CSV Imported record",
+              "pending",
+              "Unassigned",
+              null,
+              JSON.stringify(notes),
+              JSON.stringify([]),
+              JSON.stringify(timeline)
+            ]
+          );
+          importedCount++;
+        }
+      }
+
+      await logActivity(`Imported ${importedCount} leads via CSV bulk upload`);
+      const [leads]: any = await pool.query("SELECT * FROM leads ORDER BY id DESC");
+      res.json({ success: true, count: importedCount, leads });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/faqs/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    db.faqs = db.faqs.filter(f => f.id !== id);
-    writeDb(db);
-    logActivity(`Deleted FAQ item`);
-    res.json({ success: true });
-  });
-
-  // Testimonials CRUD
-  app.get("/api/testimonials", (req, res) => {
-    res.json(readDb().testimonials);
-  });
-
-  app.post("/api/testimonials", (req, res) => {
-    const db = readDb();
-    const newTestimonial = {
-      id: db.testimonials.length > 0 ? Math.max(...db.testimonials.map(t => t.id)) + 1 : 1,
-      ...req.body
-    };
-    db.testimonials.push(newTestimonial);
-    writeDb(db);
-    logActivity(`Created client testimonial by ${newTestimonial.author_name}`);
-    res.json({ success: true, testimonial: newTestimonial });
-  });
-
-  app.put("/api/testimonials/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    const index = db.testimonials.findIndex(t => t.id === id);
-    if (index !== -1) {
-      db.testimonials[index] = { ...db.testimonials[index], ...req.body };
-      writeDb(db);
-      res.json({ success: true, testimonial: db.testimonials[index] });
-    } else {
-      res.status(404).json({ message: "Testimonial not found" });
+  // Portfolio CRUD (Direct MySQL)
+  app.get("/api/portfolio", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM portfolio ORDER BY id ASC");
+      const portfolio = rows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        category: r.category,
+        client: r.client || "",
+        technology_used: safeJsonParse(r.technology_used, []),
+        project_timeline: r.project_timeline || "",
+        website_link: r.website_link || "",
+        video_url: r.video_url || "",
+        description: r.description || "",
+        case_study: r.case_study || "",
+        screenshots: safeJsonParse(r.screenshots, [])
+      }));
+      res.json(portfolio);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
     }
   });
 
-  app.delete("/api/testimonials/:id", (req, res) => {
-    const id = parseInt(req.params.id);
-    const db = readDb();
-    db.testimonials = db.testimonials.filter(t => t.id !== id);
-    writeDb(db);
-    logActivity(`Deleted testimonial item`);
-    res.json({ success: true });
+  app.post("/api/portfolio", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const slug = req.body.slug || req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const [result]: any = await pool.query(
+        `INSERT INTO portfolio (title, slug, category, client, technology_used, project_timeline, website_link, video_url, description, case_study, screenshots)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.title,
+          slug,
+          req.body.category || "Design",
+          req.body.client || "",
+          JSON.stringify(req.body.technology_used || []),
+          req.body.project_timeline || "",
+          req.body.website_link || "",
+          req.body.video_url || "",
+          req.body.description || "",
+          req.body.case_study || "",
+          JSON.stringify(req.body.screenshots || [])
+        ]
+      );
+      const newProject = {
+        id: Number(result.insertId),
+        ...req.body,
+        slug
+      };
+      await logActivity(`Created portfolio item: ${newProject.title}`);
+      res.json({ success: true, project: newProject });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // Settings CRUD
-  app.get("/api/settings", (req, res) => {
-    res.json(readDb().settings);
+  app.put("/api/portfolio/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      const slug = req.body.slug || req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      await pool.query(
+        `UPDATE portfolio SET title = ?, slug = ?, category = ?, client = ?, technology_used = ?, project_timeline = ?, website_link = ?, video_url = ?, description = ?, case_study = ?, screenshots = ?
+         WHERE id = ?`,
+        [
+          req.body.title,
+          slug,
+          req.body.category || "Design",
+          req.body.client || "",
+          JSON.stringify(req.body.technology_used || []),
+          req.body.project_timeline || "",
+          req.body.website_link || "",
+          req.body.video_url || "",
+          req.body.description || "",
+          req.body.case_study || "",
+          JSON.stringify(req.body.screenshots || []),
+          id
+        ]
+      );
+      await logActivity(`Updated portfolio item #${id}: ${req.body.title}`);
+      res.json({ success: true, project: { id, ...req.body, slug } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  app.post("/api/settings", (req, res) => {
-    const db = readDb();
-    db.settings = { ...db.settings, ...req.body };
-    writeDb(db);
-    logActivity("Updated general agency settings");
-    res.json({ success: true, settings: db.settings });
+  app.delete("/api/portfolio/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM portfolio WHERE id = ?", [id]);
+      await logActivity(`Deleted portfolio item #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
-  // Dynamic Sitemap Simulator
-  app.get("/sitemap.xml", (req, res) => {
-    const db = readDb();
-    const baseUrl = "https://creattivee.com";
-    res.header("Content-Type", "application/xml");
-    
-    let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
-    xml += `  <url>\n    <loc>${baseUrl}/</loc>\n    <priority>1.0</priority>\n  </url>\n`;
-    
-    // Services urls
-    db.services.forEach(s => {
-      xml += `  <url>\n    <loc>${baseUrl}/services/${s.slug}</loc>\n    <priority>0.8</priority>\n  </url>\n`;
-    });
+  // Blogs CRUD (Direct MySQL)
+  app.get("/api/blogs", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM blogs ORDER BY id DESC");
+      const blogs = rows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        slug: r.slug,
+        category: r.category,
+        tags: safeJsonParse(r.tags, []),
+        content: r.content,
+        featured_image: r.featured_image || "",
+        author: r.author || "Admin",
+        reading_time: Number(r.reading_time || 5),
+        views: Number(r.views || 0),
+        comments: safeJsonParse(r.comments, []),
+        seo_title: r.seo_title || "",
+        seo_description: r.seo_description || ""
+      }));
+      res.json(blogs);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-    // Portfolio urls
-    db.portfolio.forEach(p => {
-      xml += `  <url>\n    <loc>${baseUrl}/portfolio/${p.slug}</loc>\n    <priority>0.7</priority>\n  </url>\n`;
-    });
+  app.post("/api/blogs", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const slug = req.body.slug || req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      const readingTime = Math.max(1, Math.round((req.body.content || "").replace(/<[^>]*>/g, "").split(/\s+/).length / 200));
 
-    // Blog urls
-    db.blogs.forEach(b => {
-      xml += `  <url>\n    <loc>${baseUrl}/blog/${b.slug}</loc>\n    <priority>0.6</priority>\n  </url>\n`;
-    });
+      const [result]: any = await pool.query(
+        `INSERT INTO blogs (title, slug, category, tags, content, featured_image, author, reading_time, views, comments, seo_title, seo_description)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          req.body.title,
+          slug,
+          req.body.category || "Design",
+          JSON.stringify(req.body.tags || []),
+          req.body.content || "",
+          req.body.featured_image || "",
+          req.body.author || "Admin",
+          readingTime,
+          0,
+          JSON.stringify([]),
+          req.body.seo_title || "",
+          req.body.seo_description || ""
+        ]
+      );
+      const newBlog = {
+        id: Number(result.insertId),
+        ...req.body,
+        slug,
+        views: 0,
+        comments: [],
+        reading_time: readingTime
+      };
+      await logActivity(`Created blog article: ${newBlog.title}`);
+      res.json({ success: true, blog: newBlog });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
 
-    xml += `</urlset>`;
-    res.send(xml);
+  app.put("/api/blogs/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      const slug = req.body.slug || req.body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
+      await pool.query(
+        `UPDATE blogs SET title = ?, slug = ?, category = ?, tags = ?, content = ?, featured_image = ?, author = ?, seo_title = ?, seo_description = ?
+         WHERE id = ?`,
+        [
+          req.body.title,
+          slug,
+          req.body.category || "Design",
+          JSON.stringify(req.body.tags || []),
+          req.body.content || "",
+          req.body.featured_image || "",
+          req.body.author || "Admin",
+          req.body.seo_title || "",
+          req.body.seo_description || "",
+          id
+        ]
+      );
+      await logActivity(`Updated blog article #${id}: ${req.body.title}`);
+      res.json({ success: true, blog: { id, ...req.body, slug } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/blogs/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM blogs WHERE id = ?", [id]);
+      await logActivity(`Deleted blog article #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/blogs/:id/comments", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { name, comment } = req.body;
+      const pool = getDbPool();
+
+      const [existing]: any = await pool.query("SELECT comments FROM blogs WHERE id = ? LIMIT 1", [id]);
+      if (existing.length === 0) {
+        return res.status(404).json({ message: "Blog not found" });
+      }
+
+      const comments = safeJsonParse(existing[0].comments, []);
+      const newComment = {
+        name: name || "Anonymous",
+        comment: comment || "",
+        date: new Date().toISOString().substring(0, 10)
+      };
+      comments.push(newComment);
+
+      await pool.query("UPDATE blogs SET comments = ? WHERE id = ?", [JSON.stringify(comments), id]);
+      await logActivity(`New blog comment by ${newComment.name}`);
+      res.json({ success: true, comment: newComment });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Partners CRUD (Direct MySQL)
+  app.get("/api/partners", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM partners ORDER BY id ASC");
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        name: r.name,
+        style: r.style
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/partners", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        "INSERT INTO partners (name, style) VALUES (?, ?)",
+        [req.body.name, req.body.style || ""]
+      );
+      const newPartner = { id: Number(result.insertId), ...req.body };
+      await logActivity(`Created partner: ${newPartner.name}`);
+      res.json({ success: true, partner: newPartner });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/partners/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("UPDATE partners SET name = ?, style = ? WHERE id = ?", [req.body.name, req.body.style || "", id]);
+      await logActivity(`Updated partner #${id}: ${req.body.name}`);
+      res.json({ success: true, partner: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/partners/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM partners WHERE id = ?", [id]);
+      await logActivity(`Deleted partner #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Benefits CRUD (Direct MySQL)
+  app.get("/api/benefits", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM benefits ORDER BY id ASC");
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        title: r.title,
+        text: r.text,
+        icon: r.icon,
+        bgColor: r.bgColor,
+        borderColor: r.borderColor,
+        iconColor: r.iconColor,
+        glow: r.glow
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/benefits", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        "INSERT INTO benefits (title, text, icon, bgColor, borderColor, iconColor, glow) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [req.body.title, req.body.text, req.body.icon, req.body.bgColor, req.body.borderColor, req.body.iconColor, req.body.glow]
+      );
+      const newBenefit = { id: Number(result.insertId), ...req.body };
+      await logActivity(`Created benefit: ${newBenefit.title}`);
+      res.json({ success: true, benefit: newBenefit });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/benefits/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query(
+        "UPDATE benefits SET title = ?, text = ?, icon = ?, bgColor = ?, borderColor = ?, iconColor = ?, glow = ? WHERE id = ?",
+        [req.body.title, req.body.text, req.body.icon, req.body.bgColor, req.body.borderColor, req.body.iconColor, req.body.glow, id]
+      );
+      await logActivity(`Updated benefit #${id}: ${req.body.title}`);
+      res.json({ success: true, benefit: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/benefits/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM benefits WHERE id = ?", [id]);
+      await logActivity(`Deleted benefit #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // FAQs CRUD (Direct MySQL)
+  app.get("/api/faqs", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM faqs ORDER BY id ASC");
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        question: r.question,
+        answer: r.answer,
+        category: r.category
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/faqs", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        "INSERT INTO faqs (question, answer, category) VALUES (?, ?, ?)",
+        [req.body.question, req.body.answer, req.body.category || "General"]
+      );
+      const newFaq = { id: Number(result.insertId), ...req.body };
+      await logActivity("Added FAQ item");
+      res.json({ success: true, faq: newFaq });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/faqs/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("UPDATE faqs SET question = ?, answer = ?, category = ? WHERE id = ?", [req.body.question, req.body.answer, req.body.category || "General", id]);
+      await logActivity(`Updated FAQ item #${id}`);
+      res.json({ success: true, faq: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/faqs/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM faqs WHERE id = ?", [id]);
+      await logActivity(`Deleted FAQ item #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Testimonials CRUD (Direct MySQL)
+  app.get("/api/testimonials", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT * FROM testimonials ORDER BY id ASC");
+      res.json(rows.map((r: any) => ({
+        id: Number(r.id),
+        author_name: r.author_name,
+        author_role: r.author_role,
+        author_company: r.author_company || "",
+        testimonial_text: r.testimonial_text,
+        rating: Number(r.rating || 5),
+        author_avatar: r.author_avatar || ""
+      })));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/testimonials", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [result]: any = await pool.query(
+        "INSERT INTO testimonials (author_name, author_role, author_company, testimonial_text, rating, author_avatar) VALUES (?, ?, ?, ?, ?, ?)",
+        [req.body.author_name, req.body.author_role, req.body.author_company || "", req.body.testimonial_text, req.body.rating || 5, req.body.author_avatar || ""]
+      );
+      const newTestimonial = { id: Number(result.insertId), ...req.body };
+      await logActivity(`Created testimonial: ${newTestimonial.author_name}`);
+      res.json({ success: true, testimonial: newTestimonial });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.put("/api/testimonials/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query(
+        "UPDATE testimonials SET author_name = ?, author_role = ?, author_company = ?, testimonial_text = ?, rating = ?, author_avatar = ? WHERE id = ?",
+        [req.body.author_name, req.body.author_role, req.body.author_company || "", req.body.testimonial_text, req.body.rating || 5, req.body.author_avatar || "", id]
+      );
+      await logActivity(`Updated testimonial #${id}`);
+      res.json({ success: true, testimonial: { id, ...req.body } });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.delete("/api/testimonials/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const pool = getDbPool();
+      await pool.query("DELETE FROM testimonials WHERE id = ?", [id]);
+      await logActivity(`Deleted testimonial #${id}`);
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Settings CRUD (Direct MySQL)
+  app.get("/api/settings", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows]: any = await pool.query("SELECT meta_key, meta_value FROM settings");
+      const settingsObj: Record<string, string> = {
+        company_name: "Creattivee",
+        company_address: "D-561, Pocket 11, DDA Janta Flats, Jasola, New Delhi, 110025",
+        company_phone: "+91-8796380455",
+        company_email: "creattivee@gmail.com",
+        smtp_host: "smtp.gmail.com",
+        smtp_port: "587",
+        seo_default_title: "Creattivee | Custom Software & Creative Web Design Agency",
+        seo_default_description: "High performance digital agency specializing in custom software, ERPs, SEO, and bespoke React development."
+      };
+      for (const row of rows) {
+        settingsObj[row.meta_key] = row.meta_value;
+      }
+      res.json(settingsObj);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.post("/api/settings", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      for (const [key, val] of Object.entries(req.body)) {
+        await pool.query(
+          "INSERT INTO settings (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)",
+          [key, String(val)]
+        );
+      }
+      await logActivity("Updated general agency settings");
+      
+      const [rows]: any = await pool.query("SELECT meta_key, meta_value FROM settings");
+      const settingsObj: Record<string, string> = {};
+      for (const row of rows) {
+        settingsObj[row.meta_key] = row.meta_value;
+      }
+      res.json({ success: true, settings: settingsObj });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // Dynamic Sitemap
+  app.get("/sitemap.xml", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [services]: any = await pool.query("SELECT slug FROM services");
+      const [portfolio]: any = await pool.query("SELECT slug FROM portfolio");
+      const [blogs]: any = await pool.query("SELECT slug FROM blogs");
+
+      const baseUrl = "https://creattivee.com";
+      res.header("Content-Type", "application/xml");
+      
+      let xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n`;
+      xml += `  <url>\n    <loc>${baseUrl}/</loc>\n    <priority>1.0</priority>\n  </url>\n`;
+      
+      services.forEach((s: any) => {
+        xml += `  <url>\n    <loc>${baseUrl}/services/${s.slug}</loc>\n    <priority>0.8</priority>\n  </url>\n`;
+      });
+
+      portfolio.forEach((p: any) => {
+        xml += `  <url>\n    <loc>${baseUrl}/portfolio/${p.slug}</loc>\n    <priority>0.7</priority>\n  </url>\n`;
+      });
+
+      blogs.forEach((b: any) => {
+        xml += `  <url>\n    <loc>${baseUrl}/blog/${b.slug}</loc>\n    <priority>0.6</priority>\n  </url>\n`;
+      });
+
+      xml += `</urlset>`;
+      res.send(xml);
+    } catch {
+      res.status(500).send("Error generating sitemap");
+    }
   });
 
   // Dynamic Robots.txt
@@ -2098,12 +1748,22 @@ async function startServer() {
     res.send(`User-agent: *\nAllow: /\nSitemap: https://creattivee.com/sitemap.xml`);
   });
 
-  // Backup Trigger
-  app.get("/api/backups/download", (req, res) => {
-    const db = readDb();
-    res.setHeader("Content-disposition", "attachment; filename=creattivee_db_backup.json");
-    res.setHeader("Content-type", "application/json");
-    res.send(JSON.stringify(db, null, 2));
+  // Full Database Backup Export (JSON dump from direct MySQL)
+  app.get("/api/backups/download", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const backup: any = {};
+      const tables = ["users", "services", "packages", "portfolio", "blogs", "leads", "clients", "proposals", "testimonials", "faqs", "settings", "partners", "activity_logs", "benefits"];
+      for (const t of tables) {
+        const [rows]: any = await pool.query(`SELECT * FROM \`${t}\``);
+        backup[t] = rows;
+      }
+      res.setHeader("Content-disposition", "attachment; filename=creattivee_mysql_backup.json");
+      res.setHeader("Content-type", "application/json");
+      res.send(JSON.stringify(backup, null, 2));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
   });
 
   // --- VITE MIDDLEWARE INTERACTION ---
