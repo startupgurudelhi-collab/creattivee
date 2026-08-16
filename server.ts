@@ -5,6 +5,7 @@ import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import mysql from "mysql2/promise";
 import dotenv from "dotenv";
+import puppeteer from "puppeteer";
 
 dotenv.config();
 
@@ -1711,6 +1712,216 @@ async function startServer() {
   // Proposals CRUD + attractive generator
   app.get("/api/proposals", (req, res) => {
     res.json(readDb().proposals || []);
+  });
+
+  // Dedicated Enterprise Puppeteer PDF Export Endpoint (Direct File Download)
+  app.post("/api/proposals/export-pdf/:proposalId", async (req, res) => {
+    const startTime = Date.now();
+    const proposalId = parseInt(req.params.proposalId);
+    console.log(`[PDF Engine] Initiating export for Proposal #${proposalId}...`);
+
+    try {
+      const db = readDb();
+      const proposal: any = db.proposals?.find((p: any) => p.id === proposalId);
+      
+      let htmlContent = req.body?.html;
+
+      if (!htmlContent && proposal) {
+        // Fallback reconstructed HTML from DB record
+        const clientName = proposal.client_name || "Valued Client";
+        const clientEmail = proposal.client_email || "";
+        const clientPhone = proposal.client_phone || "";
+        const price = proposal.price ? Number(proposal.price).toLocaleString("en-IN") : "0";
+        const dateStr = proposal.created_at ? new Date(proposal.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : new Date().toLocaleDateString("en-IN");
+        
+        htmlContent = `
+          <div id="proposal-printable-canvas" style="padding: 40px; background: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #1e293b;">
+            <div style="display: flex; justify-content: space-between; border-bottom: 2px solid #f1f5f9; padding-bottom: 20px;">
+              <div>
+                <h2 style="margin: 0; font-size: 24px; font-weight: 800; color: #0f172a;">creattivee<span style="color: #9333ea;">.</span></h2>
+                <div style="font-size: 10px; color: #7e22ce; font-weight: 700; text-transform: uppercase; margin-top: 4px;">Bespoke Full Stack Studio</div>
+              </div>
+              <div style="text-align: right; font-size: 12px; color: #64748b;">
+                <p style="margin: 0; font-weight: 700; color: #1e293b;">Creattivee Digital Labs</p>
+                <p style="margin: 2px 0 0 0;">D-561, Pocket 11, Jasola, New Delhi, India</p>
+                <p style="margin: 2px 0 0 0; color: #7e22ce; font-weight: 600;">creattivee@gmail.com | +91-8796380455</p>
+              </div>
+            </div>
+            <div style="margin-top: 20px;">
+              <span style="font-size: 10px; font-weight: 700; color: #7e22ce; background: #faf5ff; padding: 2px 8px; border-radius: 4px; border: 1px solid #f3e8ff;">Ref: PROPOSAL #${proposal.id}</span>
+              <span style="float: right; font-size: 12px; color: #94a3b8;">Date: ${dateStr}</span>
+              <h3 style="font-size: 22px; font-weight: 800; color: #0f172a; margin: 12px 0 6px 0;">${proposal.title || "Interactive Digital Growth Proposal"}</h3>
+            </div>
+            <div style="margin-top: 16px; padding: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+              <div>
+                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">PROPOSAL PREPARED FOR</span>
+                <p style="margin: 4px 0 0 0; font-size: 14px; font-weight: 700; color: #0f172a;">${clientName}</p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">Email: ${clientEmail}</p>
+                ${clientPhone ? `<p style="margin: 2px 0 0 0; font-size: 12px; color: #64748b;">Phone: ${clientPhone}</p>` : ""}
+              </div>
+              <div>
+                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">CONTRACT METRICS</span>
+                <p style="margin: 4px 0 0 0; font-size: 12px; color: #334155;">Timeline: <strong>${proposal.timeline || "2 Weeks"}</strong></p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; color: #334155;">Currency: <strong>INR (₹ / Rs.)</strong></p>
+                <p style="margin: 2px 0 0 0; font-size: 12px; color: #7e22ce;">Status: <strong>${proposal.status || "DRAFT"}</strong></p>
+              </div>
+            </div>
+            <div style="margin-top: 24px;">
+              <h4 style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; border-bottom: 1px solid #f1f5f9; padding-bottom: 8px;">Detailed Scope of Deliverables</h4>
+              <div style="font-size: 12px; line-height: 1.6; color: #334155; margin-top: 12px;">
+                ${proposal.scope_html || "<p>Complete digital architecture, frontend UI, backend endpoints and database setup.</p>"}
+              </div>
+            </div>
+            <div style="margin-top: 24px; padding-top: 12px; border-top: 1px solid #f1f5f9;">
+              <h4 style="font-size: 11px; font-weight: 700; color: #94a3b8; text-transform: uppercase; margin-bottom: 6px;">Terms & Mobilization Agreements</h4>
+              <p style="font-size: 12px; color: #475569; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0; margin: 0;">${proposal.terms || "50% advance mobilization fee, remaining 50% on successful handover."}</p>
+            </div>
+            <div style="margin-top: 24px; padding-top: 16px; border-top: 2px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <p style="margin: 0; font-weight: 700; color: #334155; font-size: 12px;">Creattivee Verified Contract</p>
+                <p style="margin: 2px 0 0 0; font-size: 11px; color: #059669;">✔ High-precision deliverables ledger</p>
+              </div>
+              <div style="text-align: right;">
+                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">TOTAL CONTRACT QUOTE</span>
+                <p style="margin: 2px 0 0 0; font-size: 28px; font-weight: 900; color: #0f172a;">₹${price}</p>
+              </div>
+            </div>
+            <div style="margin-top: 32px; display: grid; grid-template-columns: 1fr 1fr; gap: 32px; padding-top: 16px; border-top: 1px dashed #cbd5e1;">
+              <div>
+                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">CLIENT ACCEPTANCE</span>
+                <div style="height: 40px; border-bottom: 1px dashed #cbd5e1; display: flex; align-items: flex-end;">
+                  <span style="font-size: 11px; color: #94a3b8; font-style: italic;">Awaiting Client E-Signature</span>
+                </div>
+                <p style="font-size: 11px; color: #64748b; margin-top: 6px;">${clientName}</p>
+              </div>
+              <div>
+                <span style="font-size: 10px; font-weight: 700; color: #94a3b8; text-transform: uppercase;">CREATTIVEE AUTHORIZATION</span>
+                <div style="height: 40px; border-bottom: 1px dashed #cbd5e1; display: flex; align-items: flex-end;">
+                  <span style="font-size: 12px; color: #7e22ce; font-weight: 700; font-style: italic;">${proposal.signature_data || "Creattivee Director Sign"}</span>
+                </div>
+                <p style="font-size: 11px; color: #64748b; margin-top: 6px;">Creattivee Director & Labs Lead</p>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+
+      if (!htmlContent) {
+        return res.status(404).json({ success: false, message: "Proposal data or HTML payload not found" });
+      }
+
+      // Compile full high-resolution styled document for Puppeteer
+      const fullDocumentHtml = `
+        <!DOCTYPE html>
+        <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Proposal #${proposalId}</title>
+            <link rel="preconnect" href="https://fonts.googleapis.com">
+            <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+            <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+            <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+            <style>
+              @page {
+                size: A4 portrait;
+                margin: 0;
+              }
+              * {
+                box-sizing: border-box;
+                -webkit-print-color-adjust: exact !important;
+                print-color-adjust: exact !important;
+              }
+              body {
+                margin: 0;
+                padding: 0;
+                background-color: #ffffff;
+                font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                color: #1e293b;
+              }
+              #proposal-printable-canvas {
+                width: 100% !important;
+                max-width: 850px !important;
+                margin: 0 auto !important;
+                padding: 36px 40px !important;
+                border: none !important;
+                box-shadow: none !important;
+              }
+            </style>
+          </head>
+          <body>
+            ${htmlContent}
+          </body>
+        </html>
+      `;
+
+      // Launch Puppeteer Headless Browser
+      console.log(`[PDF Engine] Launching Puppeteer Headless Chromium...`);
+      const browser = await puppeteer.launch({
+        args: [
+          "--no-sandbox",
+          "--disable-setuid-sandbox",
+          "--disable-dev-shm-usage",
+          "--disable-accelerated-2d-canvas",
+          "--no-first-run",
+          "--no-zygote",
+          "--single-process",
+          "--disable-gpu"
+        ],
+        headless: true
+      });
+
+      console.log(`[PDF Engine] Puppeteer browser started successfully`);
+      const page = await browser.newPage();
+      await page.setViewport({ width: 1200, height: 1600, deviceScaleFactor: 2 });
+      
+      console.log(`[PDF Engine] Setting proposal HTML and awaiting network/font assets...`);
+      await page.setContent(fullDocumentHtml, {
+        waitUntil: ["load", "domcontentloaded"],
+        timeout: 30000
+      });
+
+      console.log(`[PDF Engine] Generating A4 high-resolution PDF binary buffer...`);
+      const pdfBuffer = await page.pdf({
+        format: "A4",
+        printBackground: true,
+        preferCSSPageSize: true,
+        displayHeaderFooter: false,
+        margin: { top: "0mm", right: "0mm", bottom: "0mm", left: "0mm" },
+        scale: 1,
+        landscape: false
+      });
+
+      await browser.close();
+      const durationMs = Date.now() - startTime;
+      const fileSizeKb = Math.round(pdfBuffer.length / 1024);
+      console.log(`[PDF Engine] PDF generated successfully! Duration: ${durationMs}ms, Size: ${fileSizeKb}KB`);
+
+      // Update proposal tracking metrics in DB
+      if (proposal) {
+        (proposal as any).download_count = ((proposal as any).download_count || 0) + 1;
+        (proposal as any).last_downloaded_at = new Date().toISOString();
+        (proposal as any).pdf_generated_at = new Date().toISOString();
+        (proposal as any).pdf_version = ((proposal as any).pdf_version || 1);
+        writeDb(db);
+        logActivity(`Downloaded PDF for proposal #${proposalId} (${fileSizeKb}KB)`);
+      }
+
+      const clientNameSafe = (proposal as any)?.client_name ? (proposal as any).client_name.replace(/[^a-zA-Z0-9_-]/g, "_") : "Client";
+      const filename = `Proposal-${proposalId}-${clientNameSafe}.pdf`;
+
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      return res.send(pdfBuffer);
+    } catch (error: any) {
+      console.error(`[PDF Engine Error] Failed generating proposal PDF:`, error);
+      res.status(500).json({
+        success: false,
+        message: "Failed to generate PDF via Puppeteer",
+        error: error?.message || String(error)
+      });
+    }
   });
 
   app.post("/api/proposals", (req, res) => {

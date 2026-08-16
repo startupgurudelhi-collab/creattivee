@@ -34,6 +34,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   // Proposal Management States
   const [proposalViewMode, setProposalViewMode] = useState<"history" | "create">("history");
   const [editingProposal, setEditingProposal] = useState<Proposal | null>(null);
+  const [previewingProposal, setPreviewingProposal] = useState<Proposal | null>(null);
+  const [downloadingProposalId, setDownloadingProposalId] = useState<number | null>(null);
 
   // Manual Add Lead Modal States
   const [showAddLeadModal, setShowAddLeadModal] = useState(false);
@@ -446,6 +448,41 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     setEditingProposal(prop);
     setActiveTab("proposals");
     setProposalViewMode("create");
+  };
+
+  const handleDirectDownloadProposal = async (prop: Proposal) => {
+    setDownloadingProposalId(prop.id);
+    try {
+      const res = await fetch(`/api/proposals/export-pdf/${prop.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+
+      if (!res.ok) {
+        throw new Error(`Server returned ${res.status}: Failed to generate PDF`);
+      }
+
+      const blob = await res.blob();
+      const clientNameSafe = (prop.client_name || "Client").replace(/[^a-zA-Z0-9_-]/g, "_");
+      const filename = `Creattivee_Proposal_${prop.id}_${clientNameSafe}.pdf`;
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      fetchAllData();
+    } catch (err: any) {
+      console.error("Direct PDF download failed:", err);
+      alert(`PDF Export Error: ${err?.message || "Failed to download PDF via server engine"}`);
+    } finally {
+      setDownloadingProposalId(null);
+    }
   };
 
   const handleDeleteProposal = async (id: number) => {
@@ -1933,12 +1970,35 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                               <td className="py-4 text-right">
                                 <div className="flex items-center justify-end gap-1.5">
                                   <button
+                                    onClick={() => setPreviewingProposal(prop)}
+                                    className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-display font-bold text-xs flex items-center gap-1 border border-slate-200 cursor-pointer transition-colors"
+                                    title="Quick Preview Proposal Canvas"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-slate-600" /> Preview
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleDirectDownloadProposal(prop)}
+                                    disabled={downloadingProposalId === prop.id}
+                                    className="px-2.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-display font-bold text-xs flex items-center gap-1 border border-emerald-200 cursor-pointer transition-colors disabled:opacity-50"
+                                    title="Download PDF via Puppeteer Server Engine"
+                                  >
+                                    {downloadingProposalId === prop.id ? (
+                                      <span className="w-3.5 h-3.5 border border-emerald-600 border-t-transparent rounded-full animate-spin" />
+                                    ) : (
+                                      <Download className="w-3.5 h-3.5 text-emerald-600" />
+                                    )}
+                                    Download PDF
+                                  </button>
+
+                                  <button
                                     onClick={() => handleEditProposalTrigger(prop)}
-                                    className="px-3 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-display font-bold text-xs flex items-center gap-1 border border-purple-200 cursor-pointer transition-colors"
+                                    className="px-2.5 py-1.5 rounded-xl bg-purple-50 hover:bg-purple-100 text-purple-700 font-display font-bold text-xs flex items-center gap-1 border border-purple-200 cursor-pointer transition-colors"
                                     title="Edit Proposal Scope and Settings"
                                   >
-                                    <Edit className="w-3.5 h-3.5" /> Edit Proposal
+                                    <Edit className="w-3.5 h-3.5" /> Edit
                                   </button>
+
                                   <button
                                     onClick={() => handleDeleteProposal(prop.id)}
                                     className="p-1.5 rounded-lg border border-slate-200 hover:bg-rose-50 hover:text-rose-600 text-slate-400 cursor-pointer transition-colors"
@@ -3212,6 +3272,207 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
           </div>
         )}
       </main>
+
+      {/* PROPOSAL PREVIEW MODAL */}
+      {previewingProposal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 sm:p-6 print:hidden">
+          <div
+            onClick={() => setPreviewingProposal(null)}
+            className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs cursor-pointer"
+          />
+
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: 15 }}
+            className="relative w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden z-10"
+          >
+            {/* Modal Header */}
+            <div className="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-purple-600 text-white flex items-center justify-center font-bold">
+                  <FileText className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-display font-bold text-slate-800 text-base">
+                    Proposal #{previewingProposal.id} Preview: "{previewingProposal.title}"
+                  </h4>
+                  <p className="text-slate-500 text-xs font-mono">
+                    Client: {previewingProposal.client_name || "Custom Client"} | Status: <span className="font-bold uppercase text-purple-600">{previewingProposal.status || "draft"}</span>
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleDirectDownloadProposal(previewingProposal)}
+                  disabled={downloadingProposalId === previewingProposal.id}
+                  className="px-3.5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-display font-bold text-xs flex items-center gap-1.5 shadow-purple-soft cursor-pointer disabled:opacity-50 transition-all"
+                >
+                  {downloadingProposalId === previewingProposal.id ? (
+                    <span className="w-3.5 h-3.5 border border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <Download className="w-3.5 h-3.5" />
+                  )}
+                  Export PDF
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const prop = previewingProposal;
+                    setPreviewingProposal(null);
+                    handleEditProposalTrigger(prop);
+                  }}
+                  className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-display font-bold text-xs flex items-center gap-1 border border-slate-200 cursor-pointer"
+                >
+                  <Edit className="w-3.5 h-3.5" /> Edit
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setPreviewingProposal(null)}
+                  className="p-2 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 cursor-pointer"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Rendered Live Canvas Preview */}
+            <div className="flex-1 overflow-y-auto p-6 sm:p-8 bg-slate-100/50">
+              <div
+                id="proposal-modal-preview-canvas"
+                className="max-w-3xl mx-auto p-8 sm:p-10 rounded-3xl bg-white border border-slate-200 shadow-sm font-sans text-slate-800 space-y-7"
+              >
+                {/* Header */}
+                <div className="flex justify-between items-start border-b-2 border-slate-100 pb-5">
+                  <div className="space-y-1">
+                    <Logo size="sm" />
+                    <span className="text-[10px] text-purple-700 font-mono font-bold tracking-widest block uppercase mt-1">
+                      Bespoke Full Stack Studio
+                    </span>
+                  </div>
+                  <div className="text-right text-xs text-slate-500 space-y-0.5">
+                    <p className="font-bold text-slate-800">Creattivee Digital Labs</p>
+                    <p>D-561, Pocket 11, Jasola, New Delhi, India</p>
+                    <p className="font-mono text-purple-700 font-semibold">creattivee@gmail.com | +91-8796380455</p>
+                  </div>
+                </div>
+
+                {/* Title */}
+                <div className="space-y-1.5">
+                  <div className="flex justify-between items-center">
+                    <span className="px-2.5 py-0.5 rounded-full bg-purple-50 text-purple-700 text-[10px] font-mono font-bold border border-purple-100 uppercase">
+                      Ref: PROPOSAL #{previewingProposal.id}
+                    </span>
+                    <span className="text-xs text-slate-400 font-mono">
+                      Date: {previewingProposal.created_at ? new Date(previewingProposal.created_at).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" }) : "Recent"}
+                    </span>
+                  </div>
+                  <h3 className="text-2xl font-display font-extrabold text-slate-900 leading-tight">
+                    {previewingProposal.title}
+                  </h3>
+                </div>
+
+                {/* Client & Contract Info */}
+                <div className="p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">PROPOSAL PREPARED FOR</span>
+                    <div className="text-xs space-y-0.5 text-slate-700 font-medium">
+                      <p className="font-bold text-slate-900 text-sm">{previewingProposal.client_name || "Valued Client"}</p>
+                      <p className="text-slate-600 font-mono">Email: {previewingProposal.client_email || "N/A"}</p>
+                      {previewingProposal.client_phone && (
+                        <p className="text-slate-600 font-mono">Phone: {previewingProposal.client_phone}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <div>
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block mb-1">CONTRACT METRICS</span>
+                    <div className="text-xs space-y-0.5 text-slate-700 font-medium">
+                      <p>Handover Timeline: <span className="font-bold text-slate-900">{previewingProposal.timeline || "2 Weeks"}</span></p>
+                      <p>Contract Currency: <span className="font-bold text-slate-900">INR (₹ / Rs.)</span></p>
+                      <p>Document Status: <span className="font-bold text-purple-700 uppercase">{previewingProposal.status || "draft"}</span></p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Scope of Work */}
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-2">
+                    Detailed Scope of Deliverables
+                  </h4>
+                  <div
+                    className="proposal-rendered-scope text-xs text-slate-700 leading-relaxed font-sans space-y-3"
+                    dangerouslySetInnerHTML={{
+                      __html: previewingProposal.scope_html || (
+                        previewingProposal.services_selected && previewingProposal.services_selected.length > 0
+                          ? `<ul>${previewingProposal.services_selected.map(s => `<li><strong>${s}</strong></li>`).join("")}</ul>`
+                          : "<p>Complete digital architecture, frontend UI, backend endpoints and database setup.</p>"
+                      )
+                    }}
+                  />
+                </div>
+
+                {/* Terms */}
+                {previewingProposal.terms && (
+                  <div className="space-y-2 pt-2 border-t border-slate-100">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest pb-1">
+                      Terms & Mobilization Agreements
+                    </h4>
+                    <p className="text-xs text-slate-600 font-medium leading-relaxed bg-slate-50/50 p-3 rounded-xl border border-slate-100">
+                      {previewingProposal.terms}
+                    </p>
+                  </div>
+                )}
+
+                {/* Total */}
+                <div className="pt-4 border-t-2 border-slate-100 flex justify-between items-center">
+                  <div className="space-y-0.5 text-xs text-slate-500 font-semibold">
+                    <p className="font-bold text-slate-700">Creattivee Verified Contract</p>
+                    <div className="flex items-center gap-1.5 text-emerald-600 text-[10px]">
+                      <ShieldCheck className="w-3.5 h-3.5" /> High-precision deliverables ledger
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">TOTAL CONTRACT QUOTE</span>
+                    <span className="text-3xl font-display font-black text-slate-900">
+                      ₹{previewingProposal.price ? Number(previewingProposal.price).toLocaleString("en-IN") : "0"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Signatures */}
+                <div className="grid grid-cols-2 gap-8 pt-6">
+                  <div className="space-y-2">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block border-b border-slate-100 pb-1">
+                      CLIENT ACCEPTANCE
+                    </span>
+                    <div className="h-10 border-b border-dashed border-slate-300 flex items-end">
+                      <span className="text-xs text-slate-400 font-mono italic">Awaiting Client E-Signature</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium">{previewingProposal.client_name || "Client"}</p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block border-b border-slate-100 pb-1">
+                      CREATTIVEE AUTHORIZATION
+                    </span>
+                    <div className="h-10 border-b border-dashed border-slate-300 flex items-end">
+                      <span className="text-xs text-purple-700 font-mono font-bold tracking-wide italic">
+                        {previewingProposal.signature_data || "Creattivee Director Sign"}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 font-medium">Creattivee Director & Labs Lead</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

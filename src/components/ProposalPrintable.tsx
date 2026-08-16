@@ -288,73 +288,57 @@ export default function ProposalPrintable({
     }
   };
 
-  // Pixel-Perfect High-Resolution PDF Export
+  // Dedicated Enterprise Puppeteer PDF Export - Direct Binary Stream Download
   const handleDownloadPdf = async () => {
     const element = document.getElementById("proposal-printable-canvas");
     if (!element) return;
 
     setExportingPdf(true);
     try {
-      // Dynamically load html2canvas and jsPDF to ensure fail-safe builds on any hosting provider
-      let html2canvasModule: any = null;
-      let jsPdfModule: any = null;
-      try {
-        html2canvasModule = await import("html2canvas");
-        jsPdfModule = await import("jspdf");
-      } catch (importErr) {
-        console.warn("Could not import html2canvas/jspdf dynamically, falling back to window.print()", importErr);
-      }
+      // First ensure the proposal is saved or get active proposal ID
+      const propId = editingProposal?.id || savedProposal?.id || 1;
+      
+      // Send the live rendered HTML from the preview canvas directly to Puppeteer
+      const canvasHtml = element.outerHTML;
 
-      const html2canvas = html2canvasModule?.default || html2canvasModule;
-      const jsPDF = jsPdfModule?.default || jsPdfModule?.jsPDF || jsPdfModule;
-
-      if (!html2canvas || !jsPDF) {
-        window.print();
-        return;
-      }
-
-      // High-resolution canvas render at 3x Retina resolution for zero blur text
-      const canvas = await html2canvas(element, {
-        scale: 3,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-        windowWidth: element.scrollWidth,
-        windowHeight: element.scrollHeight,
+      const response = await fetch(`/api/proposals/export-pdf/${propId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          html: canvasHtml,
+          title: title,
+          client_name: selectedLead?.client_name || manualClientName || "Client",
+          price: customPrice,
+          timeline: timeline,
+        }),
       });
 
-      const imgData = canvas.toDataURL("image/jpeg", 1.0);
-      const pdf = new jsPDF({
-        orientation: "portrait",
-        unit: "mm",
-        format: "a4",
-        compress: true,
-      });
-
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
-
-      let heightLeft = imgHeight;
-      let position = 0;
-
-      pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, "FAST");
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage();
-        pdf.addImage(imgData, "JPEG", 0, position, imgWidth, imgHeight, undefined, "FAST");
-        heightLeft -= pdfHeight;
+      if (!response.ok) {
+        throw new Error(`Server returned ${response.status}: Failed to generate PDF`);
       }
 
+      // Receive PDF binary blob and trigger browser direct download
+      const blob = await response.blob();
       const clientNameSafe = (selectedLead?.client_name || manualClientName || "Client").replace(/[^a-zA-Z0-9_-]/g, "_");
-      pdf.save(`Creattivee_Proposal_${clientNameSafe}_${new Date().toISOString().substring(0, 10)}.pdf`);
-    } catch (err) {
+      const filename = `Creattivee_Proposal_${propId}_${clientNameSafe}.pdf`;
+
+      const downloadUrl = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = downloadUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(downloadUrl);
+
+      setExportSuccessMsg("PDF generated & downloaded successfully via Server Engine!");
+      setTimeout(() => setExportSuccessMsg(""), 4000);
+      onProposalCreated();
+    } catch (err: any) {
       console.error("PDF export failed:", err);
-      window.print();
+      alert(`PDF Export Error: ${err?.message || "Failed to generate PDF on server. Please try again."}`);
     } finally {
       setExportingPdf(false);
     }
@@ -804,8 +788,8 @@ export default function ProposalPrintable({
                 type="button"
                 onClick={handleDownloadPdf}
                 disabled={exportingPdf}
-                className="px-3.5 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-display font-bold text-xs flex items-center gap-1.5 shadow-sm cursor-pointer disabled:opacity-50 transition-all"
-                title="Download High-Res PDF (Identical to Preview)"
+                className="px-4 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-display font-bold text-xs flex items-center gap-1.5 shadow-purple-soft cursor-pointer disabled:opacity-50 transition-all"
+                title="Download High-Res PDF (Generated via Puppeteer Server Engine)"
               >
                 {exportingPdf ? (
                   <span className="w-3.5 h-3.5 border border-white border-t-transparent rounded-full animate-spin" />
@@ -813,15 +797,6 @@ export default function ProposalPrintable({
                   <Download className="w-3.5 h-3.5" />
                 )}
                 Export PDF
-              </button>
-
-              <button
-                type="button"
-                onClick={() => window.print()}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-display font-bold text-xs flex items-center gap-1.5 border border-slate-200 cursor-pointer transition-all"
-                title="Print or Vector Browser PDF"
-              >
-                <Printer className="w-3.5 h-3.5" /> Print
               </button>
             </div>
           </div>
