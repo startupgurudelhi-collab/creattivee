@@ -87,12 +87,12 @@ function getDbPool(): mysql.Pool {
     const database = process.env.DB_DATABASE || process.env.DB_NAME || "";
     const port = parseInt(process.env.DB_PORT || "3306");
 
-    console.log("[DB CONFIG]", {
-      host,
-      user,
-      database,
-      port,
-      passwordConfigured: !!password
+    console.log('[DB DIAGNOSTIC]', {
+      host: process.env.DB_HOST,
+      port: process.env.DB_PORT,
+      database: process.env.DB_DATABASE || process.env.DB_NAME,
+      username: process.env.DB_USERNAME || process.env.DB_USER,
+      passwordLength: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
     });
 
     if (!user || user === "root") {
@@ -300,6 +300,33 @@ async function startServer() {
         fallback: false,
         env: envVars,
         error: `Could not connect to Hostinger MySQL: ${err.message}`
+      });
+    }
+  });
+
+  // Temporary Diagnostics Endpoint for Troubleshooting Hostinger Connectivity
+  app.get("/api/db-test", async (req, res) => {
+    try {
+      const pool = getDbPool();
+      const [rows] = await pool.query("SELECT 1 AS ok;");
+      return res.json({
+        success: true,
+        result: rows,
+        env: {
+          host: process.env.DB_HOST,
+          port: process.env.DB_PORT,
+          database: process.env.DB_DATABASE || process.env.DB_NAME,
+          username: process.env.DB_USERNAME || process.env.DB_USER,
+          passwordLength: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
+        }
+      });
+    } catch (error: any) {
+      return res.status(500).json({
+        success: false,
+        code: error.code,
+        errno: error.errno,
+        sqlState: error.sqlState,
+        message: error.message
       });
     }
   });
