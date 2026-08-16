@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import os from "os";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
 import mysql from "mysql2/promise";
@@ -9,6 +10,17 @@ import puppeteer from "puppeteer";
 import chromium from "@sparticuz/chromium";
 
 dotenv.config();
+
+const potentialEnvFiles = [".env", ".env.local", ".env.production", ".env.development", ".env.example"];
+const envFilesFound = potentialEnvFiles.filter(f => fs.existsSync(f));
+
+console.log('[ENV SOURCE AUDIT]', {
+  DB_HOST: process.env.DB_HOST,
+  DB_DATABASE: process.env.DB_DATABASE,
+  DB_USERNAME: process.env.DB_USERNAME,
+  DB_PASSWORD_LENGTH: process.env.DB_PASSWORD?.length,
+  ENV_FILES_FOUND: envFilesFound
+});
 
 const PORT = 3000;
 
@@ -314,6 +326,37 @@ async function startServer() {
       DB_USERNAME: process.env.DB_USERNAME || null,
       DB_USER: process.env.DB_USER || null,
       DB_PASSWORD_LENGTH: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
+    });
+  });
+
+  // Temporary Forensic Audit Endpoint for Environment Source
+  app.get("/api/env-source-audit", (req, res) => {
+    return res.json({
+      DB_HOST: process.env.DB_HOST || null,
+      DB_DATABASE: process.env.DB_DATABASE || null,
+      DB_NAME: process.env.DB_NAME || null,
+      DB_USERNAME: process.env.DB_USERNAME || null,
+      DB_USER: process.env.DB_USER || null,
+      DB_PASSWORD_LENGTH: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0,
+      NODE_ENV: process.env.NODE_ENV || null,
+      ALL_DB_KEYS: Object.keys(process.env)
+        .filter(k => k.includes('DB'))
+        .sort()
+    });
+  });
+
+  // Temporary Runtime Fingerprint Endpoint
+  const SERVER_START_TIME = new Date().toISOString();
+  app.get("/api/runtime-fingerprint", (req, res) => {
+    return res.json({
+      deploymentId: process.env.K_SERVICE || process.env.APPLET_ID || "unknown",
+      revisionId: process.env.K_REVISION || os.hostname(),
+      buildTimestamp: SERVER_START_TIME,
+      nodeEnv: process.env.NODE_ENV || "unknown",
+      dbPasswordLength: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0,
+      appUrl: process.env.APP_URL || null,
+      hostname: os.hostname(),
+      allDbKeys: Object.keys(process.env).filter(k => k.includes('DB')).sort()
     });
   });
 
