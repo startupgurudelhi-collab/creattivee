@@ -147,6 +147,17 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDesc, setSeoDesc] = useState("");
 
+  // Hostinger MySQL Direct Configuration States
+  const [dbHostInput, setDbHostInput] = useState("srv1826.hstgr.io");
+  const [dbPortInput, setDbPortInput] = useState("3306");
+  const [dbUserInput, setDbUserInput] = useState("u586646043_creattivee");
+  const [dbNameInput, setDbNameInput] = useState("u586646043_creattivee");
+  const [dbPasswordInput, setDbPasswordInput] = useState("");
+  const [showDbPassword, setShowDbPassword] = useState(false);
+  const [dbConfigSaving, setDbConfigSaving] = useState(false);
+  const [dbConfigTesting, setDbConfigTesting] = useState(false);
+  const [dbConfigFeedback, setDbConfigFeedback] = useState<{ success?: boolean; message?: string } | null>(null);
+
   // Fetch all core datasets from server API
   const fetchAllData = async () => {
     try {
@@ -212,6 +223,100 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     }
   };
 
+  const fetchDbConfig = async () => {
+    try {
+      const res = await fetch("/api/admin/db-config");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.host) setDbHostInput(data.host);
+        if (data.port) setDbPortInput(String(data.port));
+        if (data.user) setDbUserInput(data.user);
+        if (data.database) setDbNameInput(data.database);
+      }
+    } catch (err) {
+      console.error("Error fetching db config:", err);
+    }
+  };
+
+  const handleSaveDbConfig = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setDbConfigSaving(true);
+    setDbConfigFeedback(null);
+    try {
+      const res = await fetch("/api/admin/db-config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: dbHostInput,
+          port: dbPortInput,
+          user: dbUserInput,
+          database: dbNameInput,
+          password: dbPasswordInput
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDbConfigFeedback({
+          success: data.connected,
+          message: data.connected
+            ? "Database credentials saved and connection verified successfully! Hostinger is now live."
+            : `Credentials saved, but connection error: ${data.error || "Please verify credentials and Hostinger Remote MySQL whitelist"}`
+        });
+        setDbConnected(data.connected);
+      } else {
+        setDbConfigFeedback({
+          success: false,
+          message: data.error || "Failed to save database configuration."
+        });
+      }
+    } catch (err: any) {
+      setDbConfigFeedback({
+        success: false,
+        message: err.message || "Network error while saving database configuration."
+      });
+    } finally {
+      setDbConfigSaving(false);
+      fetchDbStatus();
+    }
+  };
+
+  const handleTestDbConfig = async () => {
+    setDbConfigTesting(true);
+    setDbConfigFeedback(null);
+    try {
+      const res = await fetch("/api/admin/test-db-connection", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          host: dbHostInput,
+          port: dbPortInput,
+          user: dbUserInput,
+          database: dbNameInput,
+          password: dbPasswordInput
+        })
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setDbConfigFeedback({
+          success: true,
+          message: "Connection Test Succeeded! Credentials are valid and Hostinger MySQL is accepting connections."
+        });
+      } else {
+        setDbConfigFeedback({
+          success: false,
+          message: `Connection Test Failed: ${data.error || "Access denied or host unreachable"}`
+        });
+      }
+    } catch (err: any) {
+      setDbConfigFeedback({
+        success: false,
+        message: `Connection Error: ${err.message || "Could not reach testing service"}`
+      });
+    } finally {
+      setDbConfigTesting(false);
+    }
+  };
+
   const handleDbSync = async (action: "push" | "pull") => {
     setDbSyncing(true);
     setDbSyncMessage("");
@@ -241,6 +346,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   useEffect(() => {
     fetchAllData();
     fetchDbStatus();
+    fetchDbConfig();
   }, []);
 
   // CSV Parsing Engine
@@ -3155,8 +3261,120 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
               </div>
 
               {/* Hostinger MySQL Database Connectivity & Management */}
-              <div className="space-y-3 pt-4 border-t border-slate-100">
-                <h5 className="text-xs font-bold uppercase tracking-widest text-slate-400">Hostinger MySQL Database Integration</h5>
+              <div className="space-y-4 pt-4 border-t border-slate-100">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h5 className="text-xs font-bold uppercase tracking-widest text-slate-400">Hostinger MySQL Database Integration</h5>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Configure and permanently store your Hostinger MySQL connection without losing credentials across redeployments.</p>
+                  </div>
+                </div>
+
+                {/* Direct Database Configuration Form */}
+                <form onSubmit={handleSaveDbConfig} className="p-6 rounded-2xl bg-white border border-slate-200/80 shadow-xs space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Database className="w-4 h-4 text-purple-600" />
+                      <span className="font-display font-bold text-slate-800 text-sm">Hostinger Database Credentials</span>
+                    </div>
+                    <span className="text-[10px] text-slate-400 font-mono">Auto-saved to persistent storage</span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Host</label>
+                      <input
+                        type="text"
+                        value={dbHostInput}
+                        onChange={(e) => setDbHostInput(e.target.value)}
+                        placeholder="srv1826.hstgr.io"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Port</label>
+                      <input
+                        type="text"
+                        value={dbPortInput}
+                        onChange={(e) => setDbPortInput(e.target.value)}
+                        placeholder="3306"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database User</label>
+                      <input
+                        type="text"
+                        value={dbUserInput}
+                        onChange={(e) => setDbUserInput(e.target.value)}
+                        placeholder="u586646043_creattivee"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Name</label>
+                      <input
+                        type="text"
+                        value={dbNameInput}
+                        onChange={(e) => setDbNameInput(e.target.value)}
+                        placeholder="u586646043_creattivee"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1 sm:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Password</label>
+                        <button
+                          type="button"
+                          onClick={() => setShowDbPassword(!showDbPassword)}
+                          className="text-[10px] text-purple-600 hover:underline font-medium cursor-pointer"
+                        >
+                          {showDbPassword ? "Hide" : "Show"} Password
+                        </button>
+                      </div>
+                      <input
+                        type={showDbPassword ? "text" : "password"}
+                        value={dbPasswordInput}
+                        onChange={(e) => setDbPasswordInput(e.target.value)}
+                        placeholder="Enter Hostinger MySQL Password"
+                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        required
+                      />
+                    </div>
+                  </div>
+
+                  {dbConfigFeedback && (
+                    <div className={`p-3 rounded-xl text-xs font-medium ${dbConfigFeedback.success ? "bg-emerald-50 border border-emerald-100 text-emerald-700" : "bg-amber-50 border border-amber-100 text-amber-700"}`}>
+                      {dbConfigFeedback.message}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                    <button
+                      type="button"
+                      disabled={dbConfigTesting}
+                      onClick={handleTestDbConfig}
+                      className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <RefreshCw className={`w-3.5 h-3.5 ${dbConfigTesting ? "animate-spin" : ""}`} />
+                      {dbConfigTesting ? "Testing Connection..." : "Test Hostinger Connection"}
+                    </button>
+
+                    <button
+                      type="submit"
+                      disabled={dbConfigSaving}
+                      className="px-5 py-2 rounded-xl bg-purple-600 hover:bg-purple-700 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 shadow-xs"
+                    >
+                      <Check className="w-4 h-4" />
+                      {dbConfigSaving ? "Saving Credentials..." : "Save & Activate Database"}
+                    </button>
+                  </div>
+                </form>
+
+                {/* Status & Sync Card */}
                 <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
@@ -3186,7 +3404,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                         onClick={fetchDbStatus}
                         className="px-3.5 py-1.5 rounded-xl border border-slate-200 hover:bg-slate-100 text-slate-600 font-semibold text-xs cursor-pointer flex items-center gap-1"
                       >
-                        <Settings className="w-3.5 h-3.5" /> Test Connection
+                        <RefreshCw className="w-3.5 h-3.5" /> Refresh Status
                       </button>
                     </div>
                   </div>
@@ -3197,7 +3415,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       <div className="font-bold">⚠️ Warning Description:</div>
                       <div>{dbDetails.error}</div>
                       <div className="text-[10px] text-slate-500 font-sans mt-2">
-                        💡 How to fix: Make sure you have whitelisted the IP of your hosting platform or set Remote MySQL to allow connections from all hosts (%) on Hostinger, then set up the DB_HOST, DB_USER, DB_NAME, and DB_PASSWORD environment variables in your AI Studio Settings menu.
+                        💡 How to fix: Make sure you have whitelisted the IP of your hosting platform or set Remote MySQL to allow connections from all hosts (%) on Hostinger, then set up the credentials in the form above and click "Save & Activate Database".
                       </div>
                     </div>
                   )}
