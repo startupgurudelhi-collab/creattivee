@@ -4,10 +4,18 @@ import fs from "fs";
 import os from "os";
 import crypto from "crypto";
 import { createServer as createViteServer } from "vite";
-import mysql from "mysql2/promise";
+import pg from "pg";
 import dotenv from "dotenv";
 import puppeteer from "puppeteer";
 import chromium from "@sparticuz/chromium";
+import {
+  getDbPool as getRawPgPool,
+  getEffectiveDbConfig,
+  resetDbPool,
+  executeQuery,
+  logActivity,
+  initPostgresDatabase
+} from "./src/server/db";
 
 dotenv.config();
 
@@ -15,10 +23,11 @@ const potentialEnvFiles = [".env", ".env.local", ".env.production", ".env.develo
 const envFilesFound = potentialEnvFiles.filter(f => fs.existsSync(f));
 
 console.log('[ENV SOURCE AUDIT]', {
-  DB_HOST: process.env.DB_HOST,
-  DB_DATABASE: process.env.DB_DATABASE,
-  DB_USERNAME: process.env.DB_USERNAME,
-  DB_PASSWORD_LENGTH: process.env.DB_PASSWORD?.length,
+  DATABASE_URL_SET: !!process.env.DATABASE_URL,
+  DB_HOST: process.env.DB_HOST || process.env.POSTGRES_HOST || process.env.PGHOST,
+  DB_DATABASE: process.env.DB_DATABASE || process.env.DB_NAME || process.env.POSTGRES_DB || process.env.PGDATABASE,
+  DB_USERNAME: process.env.DB_USERNAME || process.env.DB_USER || process.env.POSTGRES_USER || process.env.PGUSER,
+  DB_PASSWORD_LENGTH: (process.env.DB_PASSWORD || process.env.POSTGRES_PASSWORD || process.env.PGPASSWORD)?.length || 0,
   ENV_FILES_FOUND: envFilesFound
 });
 
@@ -88,210 +97,16 @@ function getAdminSession(req: express.Request): AdminSession | null {
   return session;
 }
 
-// Hostinger MySQL Connection Pool (Dynamic & Persistent)
-let dbPool: mysql.Pool | null = null;
-
-function getEffectiveDbConfig() {
-  let fileConfig: any = {};
-  const configPath = path.join(process.cwd(), "data", "db-config.json");
-  if (fs.existsSync(configPath)) {
-    try {
-      fileConfig = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-    } catch (e) {
-      console.warn("[DB Config] Error parsing data/db-config.json:", e);
-    }
-  }
-
-  const host = fileConfig.host || process.env.DB_HOST || "srv1826.hstgr.io";
-  const user = fileConfig.user || process.env.DB_USERNAME || process.env.DB_USER || "u586646043_creattivee";
-  const password = fileConfig.password !== undefined ? fileConfig.password : (process.env.DB_PASSWORD || "");
-  const database = fileConfig.database || process.env.DB_DATABASE || process.env.DB_NAME || "u586646043_creattivee";
-  const port = parseInt(fileConfig.port || process.env.DB_PORT || "3306");
-
+// Unified Database Access Interface (100% PostgreSQL & Coolify Ready)
+function getDbPool() {
   return {
-    host,
-    user,
-    password,
-    database,
-    port,
-    source: fileConfig.password ? "saved_file_config" : "process_env"
+    query: (sql: string, params: any[] = []) => executeQuery(sql, params),
+    raw: getRawPgPool
   };
 }
 
-function getDbPool(): mysql.Pool {
-  if (!dbPool) {
-    const config = getEffectiveDbConfig();
-
-    console.log('[DB ENV AUDIT]', {
-      host: config.host,
-      port: config.port,
-      database: config.database,
-      username: config.user,
-      passwordLength: config.password ? config.password.length : 0,
-      configSource: config.source
-    });
-
-    if (!config.user || config.user === "root") {
-      console.warn("[MySQL Connection Warning] DB_USER / DB_USERNAME is not configured with a valid Hostinger user. Hostinger does not allow 'root' authentication.");
-    }
-
-    dbPool = mysql.createPool({
-      host: config.host,
-      user: config.user,
-      password: config.password,
-      database: config.database,
-      port: config.port,
-      waitForConnections: true,
-      connectionLimit: 15,
-      queueLimit: 0,
-      connectTimeout: 10000
-    });
-  }
-  return dbPool;
-}
-
-// Granular, non-destructive audit log writer (Writes directly to MySQL)
-async function logActivity(event: string, user: string = "Admin") {
-  try {
-    const pool = getDbPool();
-    const dateStr = new Date().toISOString().replace("T", " ").substring(0, 16);
-    await pool.query(
-      "INSERT INTO activity_logs (event, date, user) VALUES (?, ?, ?)",
-      [event, dateStr, user]
-    );
-  } catch (err: any) {
-    console.warn(`[ActivityLog] Non-critical error recording activity: ${err.message}`);
-  }
-}
-
-// Database schema verification, table ensure, and startup count verification
 async function initDatabaseAndVerifyCounts() {
-  const pool = getDbPool();
-  console.log("=================================================");
-  console.log(" [MySQL Persistence Engine] Initializing & Verifying...");
-  console.log("=================================================");
-
-  try {
-    // 1. Ensure auxiliary tables exist
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS partners (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        style VARCHAR(255) DEFAULT NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS activity_logs (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        event TEXT NOT NULL,
-        date VARCHAR(100) NOT NULL,
-        user VARCHAR(255) DEFAULT NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
-
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS benefits (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        title VARCHAR(255) NOT NULL,
-        text TEXT NOT NULL,
-        icon VARCHAR(100) DEFAULT NULL,
-        bgColor VARCHAR(100) DEFAULT NULL,
-        borderColor VARCHAR(100) DEFAULT NULL,
-        iconColor VARCHAR(100) DEFAULT NULL,
-        glow VARCHAR(100) DEFAULT NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    `);
-
-    // 2. Ensure proposals table has tracking and client metadata columns
-    const proposalColumns = [
-      "ALTER TABLE proposals ADD COLUMN status VARCHAR(50) DEFAULT 'draft'",
-      "ALTER TABLE proposals ADD COLUMN scope_html LONGTEXT DEFAULT NULL",
-      "ALTER TABLE proposals ADD COLUMN client_name VARCHAR(255) DEFAULT NULL",
-      "ALTER TABLE proposals ADD COLUMN client_email VARCHAR(255) DEFAULT NULL",
-      "ALTER TABLE proposals ADD COLUMN client_phone VARCHAR(50) DEFAULT NULL",
-      "ALTER TABLE proposals ADD COLUMN download_count INT DEFAULT 0",
-      "ALTER TABLE proposals ADD COLUMN last_downloaded_at VARCHAR(100) DEFAULT NULL",
-      "ALTER TABLE proposals ADD COLUMN pdf_generated_at VARCHAR(100) DEFAULT NULL",
-      "ALTER TABLE proposals ADD COLUMN pdf_version INT DEFAULT 1"
-    ];
-
-    for (const q of proposalColumns) {
-      try {
-        await pool.query(q);
-      } catch {
-        // Column already exists
-      }
-    }
-
-    // 3. Count rows in all tables and print startup verification audit
-    const tables = [
-      "users",
-      "services",
-      "packages",
-      "portfolio",
-      "blogs",
-      "leads",
-      "clients",
-      "proposals",
-      "testimonials",
-      "faqs",
-      "settings",
-      "partners",
-      "activity_logs",
-      "benefits"
-    ];
-
-    console.log(" [MySQL Verification Audit - Current Table Counts]:");
-    let totalRecords = 0;
-    for (const tableName of tables) {
-      try {
-        const [rows]: any = await pool.query(`SELECT COUNT(*) as count FROM \`${tableName}\``);
-        const count = rows[0]?.count || 0;
-        totalRecords += Number(count);
-        console.log(`   - ${tableName.padEnd(16)} : ${count} rows`);
-      } catch (countErr: any) {
-        console.warn(`   - ${tableName.padEnd(16)} : Error reading table (${countErr.message})`);
-      }
-    }
-
-    // 4. Initial one-time seeder: only executed if entire database has 0 services & 0 users
-    const [userCountRows]: any = await pool.query("SELECT COUNT(*) as count FROM users");
-    const [serviceCountRows]: any = await pool.query("SELECT COUNT(*) as count FROM services");
-    
-    if (userCountRows[0]?.count === 0 && serviceCountRows[0]?.count === 0) {
-      console.log(" [MySQL Engine] Database is completely empty. Running initial first-time database.sql initialization...");
-      const sqlPath = path.join(process.cwd(), "database.sql");
-      if (fs.existsSync(sqlPath)) {
-        const sqlContent = fs.readFileSync(sqlPath, "utf-8");
-        const statements = sqlContent
-          .split(";")
-          .map(stmt => stmt.trim())
-          .filter(stmt => {
-            if (!stmt) return false;
-            if (stmt.startsWith("--") || stmt.startsWith("/*") || stmt.startsWith("SET") || stmt.startsWith("START TRANSACTION") || stmt.startsWith("COMMIT")) return false;
-            return true;
-          });
-
-        for (const stmt of statements) {
-          try {
-            await pool.query(stmt);
-          } catch (stmtErr: any) {
-            console.warn("One-time SQL seed notice:", stmtErr.message);
-          }
-        }
-        console.log(" [MySQL Engine] Initial database seed successfully completed!");
-      }
-    } else {
-      console.log(" [MySQL Engine] Existing database data preserved. No destructive seeding occurred.");
-    }
-
-    console.log("=================================================");
-    console.log(` [MySQL Engine] Persistence verified. Total active records across all tables: ${totalRecords}`);
-    console.log("=================================================");
-  } catch (err: any) {
-    console.error(" [MySQL Engine Error] Error during startup database verification:", err);
-  }
+  await initPostgresDatabase();
 }
 
 async function startServer() {
@@ -309,12 +124,13 @@ async function startServer() {
     next();
   });
 
-  // --- API ROUTES (100% DIRECT MYSQL QUERIES) ---
+  // --- API ROUTES (100% POSTGRESQL & COOLIFY READY) ---
 
   // Database Connection Status
   app.get("/api/db-status", async (req, res) => {
     const config = getEffectiveDbConfig();
     const envVars = {
+      DATABASE_URL: !!config.connectionString,
       DB_HOST: !!config.host,
       DB_USER: !!config.user,
       DB_NAME: !!config.database,
@@ -324,21 +140,23 @@ async function startServer() {
 
     try {
       const pool = getDbPool();
-      await pool.query("SELECT 1");
+      await pool.query("SELECT 1 AS connected;");
       return res.json({
         connected: true,
+        type: config.type,
         fallback: false,
         env: envVars,
         configSource: config.source,
-        message: "Successfully connected to Hostinger MySQL Database (Source of Truth)!"
+        message: `Successfully connected to PostgreSQL Database (Coolify / Cloud Persistence)!`
       });
     } catch (err: any) {
       return res.json({
         connected: false,
+        type: config.type,
         fallback: false,
         env: envVars,
         configSource: config.source,
-        error: `Could not connect to Hostinger MySQL: ${err.message}`
+        error: `Could not connect to PostgreSQL: ${err.message}`
       });
     }
   });
@@ -347,6 +165,8 @@ async function startServer() {
   app.get("/api/admin/db-config", (req, res) => {
     const config = getEffectiveDbConfig();
     return res.json({
+      type: config.type,
+      databaseUrl: config.connectionString ? config.connectionString.replace(/:[^:@]+@/, ":****@") : "",
       host: config.host,
       user: config.user,
       database: config.database,
@@ -359,7 +179,7 @@ async function startServer() {
 
   app.post("/api/admin/db-config", async (req, res) => {
     try {
-      const { host, user, password, database, port } = req.body;
+      const { host, user, password, database, port, databaseUrl } = req.body;
       const dataDir = path.join(process.cwd(), "data");
       if (!fs.existsSync(dataDir)) {
         fs.mkdirSync(dataDir, { recursive: true });
@@ -374,22 +194,18 @@ async function startServer() {
       }
 
       const newConfig = {
-        host: host || existingConfig.host || "srv1826.hstgr.io",
-        user: user || existingConfig.user || "u586646043_creattivee",
+        databaseUrl: databaseUrl !== undefined ? databaseUrl : (existingConfig.databaseUrl || ""),
+        host: host || existingConfig.host || "localhost",
+        user: user || existingConfig.user || "postgres",
         password: password !== undefined ? password : (existingConfig.password || ""),
-        database: database || existingConfig.database || "u586646043_creattivee",
-        port: parseInt(port || existingConfig.port || "3306")
+        database: database || existingConfig.database || "creattivee_db",
+        port: parseInt(port || existingConfig.port || "5432")
       };
 
       fs.writeFileSync(configPath, JSON.stringify(newConfig, null, 2), "utf-8");
 
       // Reset pool so next query uses new credentials immediately
-      if (dbPool) {
-        try {
-          await dbPool.end();
-        } catch (e) {}
-        dbPool = null;
-      }
+      await resetDbPool();
 
       // Test new connection immediately
       let testSuccess = false;
@@ -407,7 +223,7 @@ async function startServer() {
         connected: testSuccess,
         error: testError,
         message: testSuccess
-          ? "Hostinger Database configuration saved & connection verified successfully!"
+          ? "PostgreSQL Database configuration saved & connection verified successfully!"
           : `Configuration saved, but connection failed: ${testError}`,
         config: {
           host: newConfig.host,
@@ -423,30 +239,36 @@ async function startServer() {
   });
 
   app.post("/api/admin/test-db-connection", async (req, res) => {
-    const { host, user, password, database, port } = req.body;
-    let tempPool: mysql.Pool | null = null;
+    const { host, user, password, database, port, databaseUrl } = req.body;
+    let tempPgPool: pg.Pool | null = null;
     try {
-      tempPool = mysql.createPool({
-        host: host || "srv1826.hstgr.io",
-        user: user || "u586646043_creattivee",
-        password: password || "",
-        database: database || "u586646043_creattivee",
-        port: parseInt(port || "3306"),
-        waitForConnections: true,
-        connectionLimit: 1,
-        connectTimeout: 8000
-      });
+      if (databaseUrl && databaseUrl.trim()) {
+        tempPgPool = new pg.Pool({
+          connectionString: databaseUrl.trim(),
+          ssl: databaseUrl.includes("sslmode=require") ? { rejectUnauthorized: false } : undefined,
+          connectionTimeoutMillis: 8000
+        });
+      } else {
+        tempPgPool = new pg.Pool({
+          host: host || "localhost",
+          user: user || "postgres",
+          password: password || "",
+          database: database || "creattivee_db",
+          port: parseInt(port || "5432"),
+          connectionTimeoutMillis: 8000
+        });
+      }
 
-      const [rows] = await tempPool.query("SELECT 1 AS connected;");
-      await tempPool.end();
+      const rows = await tempPgPool.query("SELECT 1 AS connected;");
+      await tempPgPool.end();
       return res.json({
         success: true,
-        message: "Successfully connected to Hostinger MySQL Database!",
-        result: rows
+        message: "Successfully connected to PostgreSQL Database!",
+        result: rows.rows
       });
     } catch (err: any) {
-      if (tempPool) {
-        try { await tempPool.end(); } catch (e) {}
+      if (tempPgPool) {
+        try { await tempPgPool.end(); } catch (e) {}
       }
       return res.status(400).json({
         success: false,
@@ -500,30 +322,37 @@ async function startServer() {
     });
   });
 
-  // Temporary Diagnostics Endpoint for Troubleshooting Hostinger Connectivity
-  app.get("/api/db-test", async (req, res) => {
+  // PostgreSQL Sync and Table Verification Endpoint
+  app.post("/api/db-sync", async (req, res) => {
     try {
       const pool = getDbPool();
-      const [rows] = await pool.query("SELECT 1 AS ok;");
+      const tables = [
+        "users", "services", "packages", "portfolio", "blogs",
+        "leads", "clients", "proposals", "testimonials", "faqs",
+        "settings", "partners", "activity_logs", "benefits"
+      ];
+      
+      const counts: Record<string, number> = {};
+      let total = 0;
+      for (const t of tables) {
+        try {
+          const [rows]: any = await pool.query(`SELECT COUNT(*) as count FROM "${t}"`);
+          const c = parseInt(rows[0]?.count || "0", 10);
+          counts[t] = c;
+          total += c;
+        } catch {
+          counts[t] = 0;
+        }
+      }
+
       return res.json({
         success: true,
-        result: rows,
-        env: {
-          host: process.env.DB_HOST,
-          port: process.env.DB_PORT,
-          database: process.env.DB_DATABASE || process.env.DB_NAME,
-          username: process.env.DB_USERNAME || process.env.DB_USER,
-          passwordLength: process.env.DB_PASSWORD ? process.env.DB_PASSWORD.length : 0
-        }
+        message: `PostgreSQL database verified! ${tables.length} tables active with ${total} total records.`,
+        counts,
+        totalRecords: total
       });
-    } catch (error: any) {
-      return res.status(500).json({
-        success: false,
-        code: error.code,
-        errno: error.errno,
-        sqlState: error.sqlState,
-        message: error.message
-      });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: err.message });
     }
   });
 
@@ -1956,7 +1785,7 @@ async function startServer() {
       const pool = getDbPool();
       for (const [key, val] of Object.entries(req.body)) {
         await pool.query(
-          "INSERT INTO settings (meta_key, meta_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)",
+          'INSERT INTO settings (meta_key, meta_value) VALUES (?, ?) ON CONFLICT (meta_key) DO UPDATE SET meta_value = EXCLUDED.meta_value',
           [key, String(val)]
         );
       }
@@ -2012,17 +1841,17 @@ async function startServer() {
     res.send(`User-agent: *\nAllow: /\nSitemap: https://creattivee.com/sitemap.xml`);
   });
 
-  // Full Database Backup Export (JSON dump from direct MySQL)
+  // Full Database Backup Export (JSON dump from PostgreSQL)
   app.get("/api/backups/download", async (req, res) => {
     try {
       const pool = getDbPool();
       const backup: any = {};
       const tables = ["users", "services", "packages", "portfolio", "blogs", "leads", "clients", "proposals", "testimonials", "faqs", "settings", "partners", "activity_logs", "benefits"];
       for (const t of tables) {
-        const [rows]: any = await pool.query(`SELECT * FROM \`${t}\``);
+        const [rows]: any = await pool.query(`SELECT * FROM "${t}"`);
         backup[t] = rows;
       }
-      res.setHeader("Content-disposition", "attachment; filename=creattivee_mysql_backup.json");
+      res.setHeader("Content-disposition", "attachment; filename=creattivee_postgres_backup.json");
       res.setHeader("Content-type", "application/json");
       res.send(JSON.stringify(backup, null, 2));
     } catch (err: any) {

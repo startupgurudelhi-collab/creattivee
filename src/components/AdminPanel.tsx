@@ -147,11 +147,12 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
   const [seoTitle, setSeoTitle] = useState("");
   const [seoDesc, setSeoDesc] = useState("");
 
-  // Hostinger MySQL Direct Configuration States
-  const [dbHostInput, setDbHostInput] = useState("srv1826.hstgr.io");
-  const [dbPortInput, setDbPortInput] = useState("3306");
-  const [dbUserInput, setDbUserInput] = useState("u586646043_creattivee");
-  const [dbNameInput, setDbNameInput] = useState("u586646043_creattivee");
+  // PostgreSQL & Coolify Database Configuration States
+  const [dbUrlInput, setDbUrlInput] = useState("");
+  const [dbHostInput, setDbHostInput] = useState("localhost");
+  const [dbPortInput, setDbPortInput] = useState("5432");
+  const [dbUserInput, setDbUserInput] = useState("postgres");
+  const [dbNameInput, setDbNameInput] = useState("creattivee_db");
   const [dbPasswordInput, setDbPasswordInput] = useState("");
   const [showDbPassword, setShowDbPassword] = useState(false);
   const [dbConfigSaving, setDbConfigSaving] = useState(false);
@@ -228,6 +229,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       const res = await fetch("/api/admin/db-config");
       if (res.ok) {
         const data = await res.json();
+        if (data.databaseUrl) setDbUrlInput(data.databaseUrl);
         if (data.host) setDbHostInput(data.host);
         if (data.port) setDbPortInput(String(data.port));
         if (data.user) setDbUserInput(data.user);
@@ -247,6 +249,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          databaseUrl: dbUrlInput,
           host: dbHostInput,
           port: dbPortInput,
           user: dbUserInput,
@@ -259,8 +262,8 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         setDbConfigFeedback({
           success: data.connected,
           message: data.connected
-            ? "Database credentials saved and connection verified successfully! Hostinger is now live."
-            : `Credentials saved, but connection error: ${data.error || "Please verify credentials and Hostinger Remote MySQL whitelist"}`
+            ? "PostgreSQL database credentials saved and connection verified successfully! Database is live."
+            : `Credentials saved, but connection error: ${data.error || "Please verify PostgreSQL credentials"}`
         });
         setDbConnected(data.connected);
       } else {
@@ -288,6 +291,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          databaseUrl: dbUrlInput,
           host: dbHostInput,
           port: dbPortInput,
           user: dbUserInput,
@@ -299,7 +303,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       if (res.ok && data.success) {
         setDbConfigFeedback({
           success: true,
-          message: "Connection Test Succeeded! Credentials are valid and Hostinger MySQL is accepting connections."
+          message: "Connection Test Succeeded! Credentials are valid and PostgreSQL is accepting connections."
         });
       } else {
         setDbConfigFeedback({
@@ -317,7 +321,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
     }
   };
 
-  const handleDbSync = async (action: "push" | "pull") => {
+  const handleDbSync = async (action: "push" | "pull" | "verify") => {
     setDbSyncing(true);
     setDbSyncMessage("");
     try {
@@ -329,7 +333,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
       const data = await res.json();
       if (res.ok && data.success) {
         setDbSyncMessage(`Success: ${data.message}`);
-        if (action === "pull") {
+        if (action === "pull" || action === "verify") {
           fetchAllData();
         }
       } else {
@@ -3260,12 +3264,12 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                 </div>
               </div>
 
-              {/* Hostinger MySQL Database Connectivity & Management */}
+              {/* PostgreSQL Database Connectivity & Management */}
               <div className="space-y-4 pt-4 border-t border-slate-100">
                 <div className="flex items-center justify-between">
                   <div>
-                    <h5 className="text-xs font-bold uppercase tracking-widest text-slate-400">Hostinger MySQL Database Integration</h5>
-                    <p className="text-[11px] text-slate-500 mt-0.5">Configure and permanently store your Hostinger MySQL connection without losing credentials across redeployments.</p>
+                    <h5 className="text-xs font-bold uppercase tracking-widest text-slate-400">PostgreSQL Database Integration (Coolify / Cloud)</h5>
+                    <p className="text-[11px] text-slate-500 mt-0.5">Configure and permanently store your PostgreSQL connection (supports Coolify, Docker, Neon, Supabase, Cloud SQL).</p>
                   </div>
                 </div>
 
@@ -3274,75 +3278,91 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   <div className="flex items-center justify-between border-b border-slate-100 pb-3">
                     <div className="flex items-center gap-2">
                       <Database className="w-4 h-4 text-purple-600" />
-                      <span className="font-display font-bold text-slate-800 text-sm">Hostinger Database Credentials</span>
+                      <span className="font-display font-bold text-slate-800 text-sm">PostgreSQL Credentials & Connection String</span>
                     </div>
-                    <span className="text-[10px] text-slate-400 font-mono">Auto-saved to persistent storage</span>
+                    <span className="text-[10px] text-slate-400 font-mono">Coolify & PostgreSQL Ready</span>
                   </div>
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Host</label>
-                      <input
-                        type="text"
-                        value={dbHostInput}
-                        onChange={(e) => setDbHostInput(e.target.value)}
-                        placeholder="srv1826.hstgr.io"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
-                        required
-                      />
+                  {/* Coolify / Cloud Connection String (DATABASE_URL) */}
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                        DATABASE_URL (Coolify Standard Connection String)
+                      </label>
+                      <span className="text-[10px] text-purple-600 font-medium">Recommended for Coolify</span>
                     </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Port</label>
-                      <input
-                        type="text"
-                        value={dbPortInput}
-                        onChange={(e) => setDbPortInput(e.target.value)}
-                        placeholder="3306"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database User</label>
-                      <input
-                        type="text"
-                        value={dbUserInput}
-                        onChange={(e) => setDbUserInput(e.target.value)}
-                        placeholder="u586646043_creattivee"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1">
-                      <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Name</label>
-                      <input
-                        type="text"
-                        value={dbNameInput}
-                        onChange={(e) => setDbNameInput(e.target.value)}
-                        placeholder="u586646043_creattivee"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
-                        required
-                      />
-                    </div>
-                    <div className="space-y-1 sm:col-span-2">
-                      <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Password</label>
-                        <button
-                          type="button"
-                          onClick={() => setShowDbPassword(!showDbPassword)}
-                          className="text-[10px] text-purple-600 hover:underline font-medium cursor-pointer"
-                        >
-                          {showDbPassword ? "Hide" : "Show"} Password
-                        </button>
+                    <input
+                      type="text"
+                      value={dbUrlInput}
+                      onChange={(e) => setDbUrlInput(e.target.value)}
+                      placeholder="postgresql://postgres:password@host:5432/creattivee_db"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                    />
+                    <p className="text-[10px] text-slate-400">If provided, this connection string will take precedence over discrete parameters.</p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100/60">
+                    <div className="text-[10px] font-bold uppercase tracking-wider text-slate-400 mb-2">Or Individual Parameters:</div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Host</label>
+                        <input
+                          type="text"
+                          value={dbHostInput}
+                          onChange={(e) => setDbHostInput(e.target.value)}
+                          placeholder="localhost"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        />
                       </div>
-                      <input
-                        type={showDbPassword ? "text" : "password"}
-                        value={dbPasswordInput}
-                        onChange={(e) => setDbPasswordInput(e.target.value)}
-                        placeholder="Enter Hostinger MySQL Password"
-                        className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
-                        required
-                      />
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Port</label>
+                        <input
+                          type="text"
+                          value={dbPortInput}
+                          onChange={(e) => setDbPortInput(e.target.value)}
+                          placeholder="5432"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database User</label>
+                        <input
+                          type="text"
+                          value={dbUserInput}
+                          onChange={(e) => setDbUserInput(e.target.value)}
+                          placeholder="postgres"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Name</label>
+                        <input
+                          type="text"
+                          value={dbNameInput}
+                          onChange={(e) => setDbNameInput(e.target.value)}
+                          placeholder="creattivee_db"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        />
+                      </div>
+                      <div className="space-y-1 sm:col-span-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Database Password</label>
+                          <button
+                            type="button"
+                            onClick={() => setShowDbPassword(!showDbPassword)}
+                            className="text-[10px] text-purple-600 hover:underline font-medium cursor-pointer"
+                          >
+                            {showDbPassword ? "Hide" : "Show"} Password
+                          </button>
+                        </div>
+                        <input
+                          type={showDbPassword ? "text" : "password"}
+                          value={dbPasswordInput}
+                          onChange={(e) => setDbPasswordInput(e.target.value)}
+                          placeholder="Enter PostgreSQL Password"
+                          className="w-full px-3 py-2 rounded-xl border border-slate-200 text-xs font-mono focus:border-purple-600 focus:outline-hidden"
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -3360,7 +3380,7 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                       className="px-4 py-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-700 font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
                     >
                       <RefreshCw className={`w-3.5 h-3.5 ${dbConfigTesting ? "animate-spin" : ""}`} />
-                      {dbConfigTesting ? "Testing Connection..." : "Test Hostinger Connection"}
+                      {dbConfigTesting ? "Testing Connection..." : "Test PostgreSQL Connection"}
                     </button>
 
                     <button
@@ -3374,12 +3394,12 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   </div>
                 </form>
 
-                {/* Status & Sync Card */}
+                {/* Status & Schema Export Card */}
                 <div className="p-6 rounded-2xl bg-slate-50 border border-slate-100 space-y-4">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
-                        <span className="font-display font-bold text-slate-800 text-sm">Hostinger Database Status</span>
+                        <span className="font-display font-bold text-slate-800 text-sm">PostgreSQL Database Status</span>
                         {dbConnected === null ? (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-500 flex items-center gap-1 animate-pulse">
                             <Clock className="w-3 h-3" /> Checking connection...
@@ -3390,12 +3410,12 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                           </span>
                         ) : (
                           <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-600 border border-amber-100/50 flex items-center gap-1">
-                            <Shield className="w-3 h-3" /> Local Storage Fallback
+                            <Shield className="w-3 h-3" /> Initializing / Checking
                           </span>
                         )}
                       </div>
                       <p className="text-[11px] text-slate-500 leading-relaxed max-w-xl">
-                        Your agency utilizes a dual-engine architecture. It writes to local persistent caches and synchronizes asynchronously with your Remote Hostinger MySQL database.
+                        Integrated with native PostgreSQL driver. All tables, sequences, and relationships auto-initialize on startup for Coolify, Docker, or Cloud DBs.
                       </p>
                     </div>
                     <div>
@@ -3412,74 +3432,61 @@ export default function AdminPanel({ onLogout }: AdminPanelProps) {
                   {/* Status / Errors */}
                   {!dbConnected && dbDetails?.error && (
                     <div className="p-3.5 rounded-xl bg-amber-50/50 border border-amber-100 text-[11px] text-amber-700 font-mono leading-relaxed space-y-1">
-                      <div className="font-bold">⚠️ Warning Description:</div>
+                      <div className="font-bold">⚠️ Connection Status Notice:</div>
                       <div>{dbDetails.error}</div>
                       <div className="text-[10px] text-slate-500 font-sans mt-2">
-                        💡 How to fix: Make sure you have whitelisted the IP of your hosting platform or set Remote MySQL to allow connections from all hosts (%) on Hostinger, then set up the credentials in the form above and click "Save & Activate Database".
+                        💡 For Coolify deployments, you can add a PostgreSQL resource in Coolify and paste the generated <code className="bg-slate-200 px-1 py-0.5 rounded text-[10px]">DATABASE_URL</code> in environment variables or into the input above.
                       </div>
                     </div>
                   )}
 
                   {dbConnected && (
                     <div className="p-3.5 rounded-xl bg-emerald-50/30 border border-emerald-100/40 text-[11px] text-emerald-700 leading-relaxed">
-                      🎉 <strong>Success:</strong> Connection with Hostinger MySQL is fully established. All website contents, portfolios, services, packages, activity logs, and testimonials are synchronized in real-time.
+                      🎉 <strong>Success:</strong> Connection with PostgreSQL is fully established and active. All website data, services, packages, leads, and activity logs are synchronized in real-time.
                     </div>
                   )}
 
                   {/* Environment Variables Checklist */}
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-2 pt-1">
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-2 pt-1">
                     {dbDetails?.env && Object.entries(dbDetails.env).map(([key, value]) => (
                       <div key={key} className="p-2.5 rounded-xl bg-white border border-slate-100 text-center flex flex-col justify-between min-h-[54px]">
                         <span className="text-[9px] font-bold text-slate-400 block font-mono">{key}</span>
-                        <span className={`text-[10px] font-bold mt-1 inline-block ${value ? "text-emerald-600" : "text-emerald-600"}`}>
-                          {value ? "✓ Configured" : "✗ Missing"}
+                        <span className={`text-[10px] font-bold mt-1 inline-block ${value ? "text-emerald-600" : "text-slate-400"}`}>
+                          {value ? "✓ Configured" : "○ Not set"}
                         </span>
                       </div>
                     ))}
                   </div>
 
-                  {/* Manual Backup & Synchronize Operations */}
-                  {dbConnected && (
-                    <div className="pt-3 border-t border-slate-100 space-y-3">
-                      <div>
-                        <h6 className="font-display font-bold text-slate-800 text-xs">Manual Synchronize Operations</h6>
-                        <p className="text-[10px] text-slate-400">Trigger manual state overrides between local storage and live Hostinger database.</p>
-                      </div>
-                      
-                      <div className="flex flex-wrap gap-2.5">
-                        <button
-                          type="button"
-                          disabled={dbSyncing}
-                          onClick={() => handleDbSync("pull")}
-                          className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-fade-in"
-                        >
-                          {dbSyncing ? "Syncing..." : "Pull Latest from Hostinger"}
-                        </button>
-                        <button
-                          type="button"
-                          disabled={dbSyncing}
-                          onClick={() => {
-                            if (window.confirm("WARNING: This will overwrite Hostinger's tables with your current local state. Do you want to proceed?")) {
-                              handleDbSync("push");
-                            }
-                          }}
-                          className="px-4 py-2 rounded-xl bg-purple-100 hover:bg-purple-200/80 text-purple-700 border border-purple-200/50 font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50 animate-fade-in"
-                        >
-                          {dbSyncing ? "Syncing..." : "Push Local to Hostinger"}
-                        </button>
-                      </div>
-
-                      {dbSyncMessage && (
-                        <div className={`p-3 rounded-xl text-xs font-medium border animate-fade-in ${
-                          dbSyncMessage.startsWith("Success") 
-                            ? "bg-emerald-50 text-emerald-700 border-emerald-100" 
-                            : "bg-rose-50 text-rose-700 border-rose-100"
-                        }`}>
-                          {dbSyncMessage}
-                        </div>
-                      )}
+                  {/* Manual Schema & Sync Operations */}
+                  <div className="pt-3 border-t border-slate-100 space-y-3">
+                    <div>
+                      <h6 className="font-display font-bold text-slate-800 text-xs">PostgreSQL Schema & Operations</h6>
+                      <p className="text-[10px] text-slate-400">View and verify PostgreSQL persistence state or download schema for manual SQL execution in Coolify / pgAdmin.</p>
                     </div>
-                  )}
+                    
+                    <div className="flex flex-wrap gap-2.5">
+                      <button
+                        type="button"
+                        disabled={dbSyncing}
+                        onClick={() => handleDbSync("verify")}
+                        className="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-display font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${dbSyncing ? "animate-spin" : ""}`} />
+                        {dbSyncing ? "Verifying..." : "Verify PostgreSQL Tables"}
+                      </button>
+                    </div>
+
+                    {dbSyncMessage && (
+                      <div className={`p-3 rounded-xl text-xs font-medium border animate-fade-in ${
+                        dbSyncMessage.startsWith("Success") || dbSyncMessage.includes("verified")
+                          ? "bg-emerald-50 text-emerald-700 border-emerald-100" 
+                          : "bg-rose-50 text-rose-700 border-rose-100"
+                      }`}>
+                        {dbSyncMessage}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
